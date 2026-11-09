@@ -1,6 +1,6 @@
 # Gap Assessment Online — Kalbe Consumer Health
 
-Aplikasi **Gap Assessment Online** untuk mengelola pemenuhan regulasi baru dan revisi klausul demi klausul, penugasan tindakan perbaikan (*action plan*), persetujuan elektronik berjenjang (ERES 21 CFR Part 11), pemantauan eksekusi, serta pelaporan kepatuhan (*compliance rate*) multi-site Kalbe Consumer Health (**Cikarang**, **Pulogadung**, **Pulomas**).
+Aplikasi **Gap Assessment Online** untuk mengelola pemenuhan regulasi baru dan revisi klausul demi klausul, penugasan tindakan perbaikan (*action plan*), persetujuan elektronik berjenjang, pemantauan eksekusi, serta pelaporan kepatuhan (*compliance rate*) multi-site Kalbe Consumer Health (**Cikarang**, **Pulogadung**, **Pulomas**).
 
 Dikembangkan mengacu pada:
 * **URS Gap Assessment Online** (User Requirement Specification)
