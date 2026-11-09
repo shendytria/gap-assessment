@@ -67,9 +67,35 @@ type GapAnalysisRow struct {
 	VerificationNotes   string     `json:"verificationNotes"`
 }
 
+type ChangeNoteItem struct {
+	ChangeNoteID int64  `json:"changeNoteId"`
+	NewCount     int    `json:"newCount"`
+	ChangedCount int    `json:"changedCount"`
+	DeletedCount int    `json:"deletedCount"`
+	ChangePoints string `json:"changePoints"`
+}
+
+type ApprovalSignatureItem struct {
+	ApprovalID       int64      `json:"approvalId"`
+	Stage            string     `json:"stage"`
+	RoleCode         string     `json:"roleCode"`
+	RoleName         string     `json:"roleName"`
+	DepartmentCode   string     `json:"departmentCode"`
+	AssignedName     string     `json:"assignedName"`
+	ActedByName      string     `json:"actedByName"`
+	OnBehalfOfName   string     `json:"onBehalfOfName"`
+	Result           string     `json:"result"`
+	ActedAt          *time.Time `json:"actedAt"`
+	SignatureMeaning string     `json:"signatureMeaning"`
+}
+
 type GapDocumentDetail struct {
 	GapDocSummary
-	Clauses []GapAnalysisRow `json:"clauses"`
+	Clauses        []GapAnalysisRow        `json:"clauses"`
+	ChangeNotes    []ChangeNoteItem        `json:"changeNotes"`
+	Approvals      []ApprovalSignatureItem `json:"approvals"`
+	VerifiedByName string                  `json:"verifiedByName"`
+	VerifiedAt     *time.Time              `json:"verifiedAt"`
 }
 
 func (s *Store) ListGapDocuments(ctx context.Context, siteID, categoryID *int, status *string) ([]GapDocSummary, error) {
@@ -230,6 +256,56 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 		d.Pct50 = float64(d.Count50) / float64(d.TotalApplicable) * 100
 		d.Pct0 = float64(d.Count0) / float64(d.TotalApplicable) * 100
 	}
+
+	// Change notes (007E)
+	d.ChangeNotes = []ChangeNoteItem{}
+	cnRows, err := s.Pool.Query(ctx, `
+		SELECT change_note_id, new_count, changed_count, deleted_count, COALESCE(change_points, '')
+		FROM change_note WHERE gap_id = $1 ORDER BY change_note_id ASC`, gapID)
+	if err == nil {
+		for cnRows.Next() {
+			var cn ChangeNoteItem
+			if cnRows.Scan(&cn.ChangeNoteID, &cn.NewCount, &cn.ChangedCount, &cn.DeletedCount, &cn.ChangePoints) == nil {
+				d.ChangeNotes = append(d.ChangeNotes, cn)
+			}
+		}
+		cnRows.Close()
+	}
+
+	// Approvals with signatures (009A, 010B)
+	d.Approvals = []ApprovalSignatureItem{}
+	appRows, err := s.Pool.Query(ctx, `
+		SELECT a.approval_id, a.stage::text, r.role_code, r.role_name,
+		       COALESCE(d.department_code, ''),
+		       u_asg.full_name, COALESCE(u_act.full_name, ''), COALESCE(u_obh.full_name, ''),
+		       a.result::text, a.acted_at, COALESCE(a.signature_meaning, '')
+		FROM approval a
+		JOIN role r ON r.role_id = a.role_id
+		JOIN users u_asg ON u_asg.user_id = a.assigned_user_id
+		LEFT JOIN users u_act ON u_act.user_id = a.acted_by_user_id
+		LEFT JOIN users u_obh ON u_obh.user_id = a.on_behalf_of_user_id
+		LEFT JOIN department d ON d.department_id = a.department_id
+		WHERE a.gap_id = $1
+		ORDER BY a.stage, a.step_seq, a.approval_id ASC`, gapID)
+	if err == nil {
+		for appRows.Next() {
+			var ap ApprovalSignatureItem
+			if appRows.Scan(&ap.ApprovalID, &ap.Stage, &ap.RoleCode, &ap.RoleName,
+				&ap.DepartmentCode, &ap.AssignedName, &ap.ActedByName, &ap.OnBehalfOfName,
+				&ap.Result, &ap.ActedAt, &ap.SignatureMeaning) == nil {
+				d.Approvals = append(d.Approvals, ap)
+			}
+		}
+		appRows.Close()
+	}
+
+	// Supervisor verification info
+	_ = s.Pool.QueryRow(ctx, `
+		SELECT u.full_name, ga.verified_at
+		FROM gap_analysis ga
+		JOIN users u ON u.user_id = ga.verified_by
+		WHERE ga.gap_id = $1 AND ga.verified_by IS NOT NULL
+		LIMIT 1`, gapID).Scan(&d.VerifiedByName, &d.VerifiedAt)
 
 	return &d, rows.Err()
 }

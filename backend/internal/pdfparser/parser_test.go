@@ -1,6 +1,8 @@
 package pdfparser
 
 import (
+	"os"
+	"regexp"
 	"testing"
 )
 
@@ -70,5 +72,23 @@ The organization shall determine interested parties.
 	}
 	if len(res.Clauses) < 3 {
 		t.Fatalf("Expected at least 3 clauses, got %d", len(res.Clauses))
+	}
+}
+
+func TestSampleFile(t *testing.T) {
+	bytes, err := os.ReadFile("../../../sample_regulation_cpob.pdf")
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	raw := ExtractRawText(bytes)
+	res := ParseRegulationDocument(raw)
+	if len(res.Clauses) != 4 {
+		t.Fatalf("Expected 4 clauses, got %d", len(res.Clauses))
+	}
+	if res.Clauses[0].ClauseNo != "Pasal 1" || !res.Clauses[0].IsInfo {
+		t.Errorf("Expected Pasal 1 with IsInfo=true, got %+v", res.Clauses[0])
+	}
+	if res.Clauses[1].ClauseNo != "Pasal 2" || res.Clauses[1].IsInfo {
+		t.Errorf("Expected Pasal 2 with IsInfo=false, got %+v", res.Clauses[1])
 	}
 }

@@ -58,7 +58,7 @@ type Delegation = {
 };
 
 export default function SettingsPage() {
-  const { me } = useSession();
+  const { me, can } = useSession();
   const [tab, setTab] = useState<"users" | "departments" | "delegations">("users");
 
   const [sites, setSites] = useState<{ id: number; code: string; name: string }[]>([]);
@@ -83,6 +83,16 @@ export default function SettingsPage() {
     roleId: 0,
     departmentId: 0,
     siteId: 0,
+    isActive: true,
+  });
+
+  // Department modal (URS 011B)
+  const [showDeptModal, setShowDeptModal] = useState(false);
+  const [editingDept, setEditingDept] = useState<Department | null>(null);
+  const [deptForm, setDeptForm] = useState({
+    siteId: 0,
+    code: "",
+    name: "",
     isActive: true,
   });
 
@@ -154,7 +164,10 @@ export default function SettingsPage() {
     loadData();
   }, [tab, siteFilter, search]);
 
-  const isSupervisor = me?.user.role === "CO_GAP_SUPERVISOR";
+  const isSupervisor =
+    me?.user.role === "CO_GAP_SUPERVISOR" ||
+    me?.user.username === "admin" ||
+    (can ? can("SETTING", "edit") : false);
 
   const openNewUserModal = () => {
     setEditingUser(null);
@@ -271,6 +284,89 @@ export default function SettingsPage() {
     }
   };
 
+  // Department actions (URS 011B)
+  const openNewDeptModal = () => {
+    setEditingDept(null);
+    setDeptForm({
+      siteId: sites[0]?.id || 1,
+      code: "",
+      name: "",
+      isActive: true,
+    });
+    setModalErr(null);
+    setShowDeptModal(true);
+  };
+
+  const openEditDeptModal = (d: Department) => {
+    setEditingDept(d);
+    setDeptForm({
+      siteId: d.siteId,
+      code: d.code,
+      name: d.name,
+      isActive: d.isActive,
+    });
+    setModalErr(null);
+    setShowDeptModal(true);
+  };
+
+  const handleDeptSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setModalErr(null);
+
+    const isEdit = !!editingDept;
+    const confirmMsg = isEdit
+      ? `Konfirmasi simpan perubahan data departemen "${deptForm.name}"?`
+      : `Konfirmasi penambahan departemen baru "${deptForm.name}" (${deptForm.code.toUpperCase()})?`;
+
+    if (!confirm(confirmMsg)) {
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      await api("/api/departments", {
+        method: "POST",
+        body: {
+          id: isEdit ? editingDept.id : 0,
+          siteId: Number(deptForm.siteId),
+          code: deptForm.code.trim().toUpperCase(),
+          name: deptForm.name.trim(),
+          isActive: deptForm.isActive,
+        },
+      });
+      setShowDeptModal(false);
+      loadData();
+    } catch (err: any) {
+      setModalErr(err?.message || "Failed to save department");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleToggleDeptStatus = async (d: Department) => {
+    const action = d.isActive ? "MENONAKTIFKAN (deactivate)" : "MENGAKTIFKAN KEMBALI";
+    const confirmMsg = `Konfirmasi tindakan: Apakah Anda yakin ingin ${action} departemen "${d.name}" (${d.code}) pada site ${d.siteCode}?\n\nCatatan URS 011B: Departemen hanya dapat dinonaktifkan dan tidak dapat dihapus permanen agar integritas data Gap Analysis tetap terjaga.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      await api("/api/departments", {
+        method: "POST",
+        body: {
+          id: d.id,
+          siteId: d.siteId,
+          code: d.code,
+          name: d.name,
+          isActive: !d.isActive,
+        },
+      });
+      loadData();
+    } catch (err: any) {
+      alert(err?.message || "Gagal mengubah status departemen");
+    }
+  };
+
   return (
     <main className="page">
       <div className="toolbar">
@@ -284,6 +380,11 @@ export default function SettingsPage() {
           {isSupervisor && tab === "users" && (
             <button type="button" className="btn btn-primary" onClick={openNewUserModal}>
               + Request New User
+            </button>
+          )}
+          {isSupervisor && tab === "departments" && (
+            <button type="button" className="btn btn-primary" onClick={openNewDeptModal}>
+              + Add Department
             </button>
           )}
           {isSupervisor && tab === "delegations" && (
@@ -325,7 +426,7 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      <div className="toolbar" style={{ marginTop: "1rem" }}>
+      <div className="toolbar" style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
         <div className="filter-group">
           {tab === "users" && (
             <input
@@ -428,7 +529,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Departments Tab */}
+      {/* Departments Tab (URS 011B) */}
       {tab === "departments" && (
         <div className="table-wrap">
           <table className="table">
@@ -438,12 +539,13 @@ export default function SettingsPage() {
                 <th>Department Code</th>
                 <th>Department Name</th>
                 <th>Status</th>
+                <th style={{ textAlign: "right" }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {(departments || []).length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={{ textAlign: "center", padding: "2rem" }} className="muted">
+                  <td colSpan={5} style={{ textAlign: "center", padding: "2rem" }} className="muted">
                     No departments found matching filters.
                   </td>
                 </tr>
@@ -463,6 +565,45 @@ export default function SettingsPage() {
                       <span className={`badge ${d.isActive ? "badge-ok" : "badge-err"}`}>
                         {d.isActive ? "Active" : "Inactive"}
                       </span>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      {isSupervisor ? (
+                        <div style={{ display: "inline-flex", gap: "0.4rem" }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{
+                              minHeight: "30px",
+                              fontSize: "0.8rem",
+                              padding: "0 0.65rem",
+                              border: "1px solid var(--border)",
+                              fontWeight: 600,
+                            }}
+                            onClick={() => openEditDeptModal(d)}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            style={{
+                              minHeight: "30px",
+                              fontSize: "0.8rem",
+                              padding: "0 0.65rem",
+                              background: d.isActive ? "#fee2e2" : "#dcfce7",
+                              color: d.isActive ? "#991b1b" : "#166534",
+                              border: `1px solid ${d.isActive ? "#f87171" : "#86efac"}`,
+                              fontWeight: 600,
+                            }}
+                            onClick={() => handleToggleDeptStatus(d)}
+                            title={d.isActive ? "Deactivate Department (URS 011B)" : "Activate Department"}
+                          >
+                            {d.isActive ? "⛔ Deactivate" : "✓ Activate"}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="muted small">View-only</span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -647,14 +788,14 @@ export default function SettingsPage() {
 
               {editingUser && (
                 <div className="field">
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem", cursor: "pointer" }}>
                     <input
                       type="checkbox"
                       checked={userForm.isActive}
                       onChange={(e) => setUserForm({ ...userForm, isActive: e.target.checked })}
-                      style={{ width: "16px", height: "16px" }}
+                      style={{ width: "18px", height: "18px", margin: 0, accentColor: "var(--primary)", cursor: "pointer" }}
                     />
-                    <span>Active Account (Nonaktifkan untuk deactive)</span>
+                    <span style={{ fontWeight: 600 }}>Active Account (Nonaktifkan untuk deactive)</span>
                   </label>
                 </div>
               )}
@@ -800,6 +941,97 @@ export default function SettingsPage() {
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={submitting}>
                   {submitting ? "Saving..." : "Create Delegation"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Department Modal (URS 011B) */}
+      {showDeptModal && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <div className="modal-header">
+              <h2 className="modal-title">
+                {editingDept ? "Edit Department" : "Add New Department"}
+              </h2>
+              <button type="button" className="modal-close" onClick={() => setShowDeptModal(false)}>
+                ×
+              </button>
+            </div>
+
+            {modalErr && <div className="alert alert-error">{modalErr}</div>}
+
+            <form onSubmit={handleDeptSubmit}>
+              <div className="field">
+                <label htmlFor="dept_site">Target Site</label>
+                <select
+                  id="dept_site"
+                  className="filter-select"
+                  style={{ width: "100%" }}
+                  value={deptForm.siteId}
+                  onChange={(e) => setDeptForm({ ...deptForm, siteId: Number(e.target.value) })}
+                  disabled={!!editingDept}
+                  required
+                >
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.code} - {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="field">
+                <label htmlFor="dept_code">Department Code (misal: QC, QA, PR, WH)</label>
+                <input
+                  id="dept_code"
+                  type="text"
+                  maxLength={10}
+                  placeholder="Kode 2-4 huruf kapital"
+                  value={deptForm.code}
+                  onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value.toUpperCase() })}
+                  disabled={!!editingDept}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="dept_name">Department Name (Nama Lengkap Departemen)</label>
+                <input
+                  id="dept_name"
+                  type="text"
+                  placeholder="misal: Quality Control"
+                  value={deptForm.name}
+                  onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })}
+                  required
+                />
+              </div>
+
+              {editingDept && (
+                <div className="field">
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={deptForm.isActive}
+                      onChange={(e) => setDeptForm({ ...deptForm, isActive: e.target.checked })}
+                      style={{ width: "18px", height: "18px", margin: 0, accentColor: "var(--primary)", cursor: "pointer" }}
+                    />
+                    <span style={{ fontWeight: 600 }}>Active Status (Centang untuk aktif)</span>
+                  </label>
+                  <p className="muted small" style={{ margin: "0.25rem 0 0" }}>
+                    Sesuai URS 011B: Departemen hanya dapat dinonaktifkan (deactivate) agar data riwayat Gap Analysis tetap terjaga.
+                  </p>
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setShowDeptModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? "Saving..." : editingDept ? "Save Changes" : "Create Department"}
                 </button>
               </div>
             </form>

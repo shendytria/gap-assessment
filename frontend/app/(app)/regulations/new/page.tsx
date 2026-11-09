@@ -28,8 +28,7 @@ export default function NewRegulationPage() {
   const [title, setTitle] = useState<string>("");
   const [publishedDate, setPublishedDate] = useState<string>("");
 
-  // Mode Selection & PDF Upload
-  const [inputMode, setInputMode] = useState<"PDF" | "MANUAL">("PDF");
+  // PDF Upload state
   const [uploading, setUploading] = useState<boolean>(false);
   const [pdfFileName, setPdfFileName] = useState<string>("");
   const [pdfFilePath, setPdfFilePath] = useState<string>("");
@@ -194,7 +193,7 @@ export default function NewRegulationPage() {
         publishedDate: publishedDate ? new Date(publishedDate) : null,
         pdfFilePath,
         pdfSha256,
-        readMode: inputMode === "PDF" && clauses.length > 0 && pdfFilePath ? "AUTO" : "MANUAL",
+        readMode: pdfFilePath && clauses.length > 0 ? "AUTO" : "MANUAL",
         siteIds: selectedSites,
         clauses,
       };
@@ -236,162 +235,156 @@ export default function NewRegulationPage() {
       {error && <div className="alert alert-error">{error}</div>}
       {extractSuccess && <div className="alert alert-info">{extractSuccess}</div>}
 
-      {/* Styled Tabs (Matches Settings & Dashboard) */}
-      <div className="tabs">
-        <button
-          type="button"
-          className={`tab ${inputMode === "PDF" ? "active" : ""}`}
-          onClick={() => setInputMode("PDF")}
-        >
-          Upload & Auto-Read PDF
-        </button>
-        <button
-          type="button"
-          className={`tab ${inputMode === "MANUAL" ? "active" : ""}`}
-          onClick={() => setInputMode("MANUAL")}
-        >
-          Manual Input
-        </button>
-      </div>
+      <form onSubmit={handleSubmit} style={{ marginTop: "1rem" }}>
+        {/* PDF Upload Section (Opsional) */}
+        <div className="card" style={{ marginBottom: "1.25rem" }}>
+          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.35rem" }}>Upload Regulation PDF Document (Opsional)</h2>
+          <p className="muted small" style={{ margin: "0 0 1rem" }}>
+            Unggah dokumen PDF regulasi untuk membaca nomor, judul, dan memilah klausul secara otomatis, atau langsung lengkapi formulir di bawah jika tidak memiliki file PDF.
+          </p>
 
-      <form onSubmit={handleSubmit}>
-        {/* PDF Upload Section */}
-        {inputMode === "PDF" && (
-          <div className="card" style={{ marginBottom: "1.25rem" }}>
-            <h2 style={{ fontSize: "1.1rem", marginBottom: "0.35rem" }}>Upload Regulation PDF Document</h2>
-            <p className="muted small" style={{ margin: "0 0 1rem" }}>
-              Unggah dokumen PDF regulasi. Sistem akan membaca nomor, judul, dan memilah klausul secara otomatis.
-            </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handleFileUpload(e.target.files[0]);
+              }
+            }}
+          />
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,application/pdf"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  handleFileUpload(e.target.files[0]);
-                }
-              }}
-            />
-
-            {pdfFileName && !uploading ? (
-              <div className="file-uploaded-card">
-                <div style={{ display: "flex", alignItems: "center", gap: "0.85rem" }}>
-                  <div
-                    style={{
-                      width: "42px",
-                      height: "42px",
-                      borderRadius: "10px",
-                      background: "var(--surface)",
-                      display: "grid",
-                      placeItems: "center",
-                      color: "var(--primary)",
-                      border: "1px solid var(--border)",
-                    }}
-                  >
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                    </svg>
+          {pdfFileName && !uploading ? (
+            <div className="file-uploaded-card">
+              <div style={{ display: "flex", alignItems: "center", gap: "0.85rem" }}>
+                <div
+                  style={{
+                    width: "42px",
+                    height: "42px",
+                    borderRadius: "10px",
+                    background: "var(--surface)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "var(--primary)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text)" }}>
+                    {pdfFileName}
                   </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text)" }}>
-                      {pdfFileName}
+                  {pdfSha256 && (
+                    <div className="muted small" style={{ marginTop: "0.15rem", fontFamily: "monospace" }}>
+                      SHA-256: {pdfSha256.slice(0, 20)}...
                     </div>
-                    {pdfSha256 && (
-                      <div className="muted small" style={{ marginTop: "0.15rem", fontFamily: "monospace" }}>
-                        SHA-256: {pdfSha256.slice(0, 20)}...
-                      </div>
-                    )}
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => fileInputRef.current?.click()}
+                style={{ background: "var(--surface)" }}
+              >
+                Ganti File PDF
+              </button>
+            </div>
+          ) : (
+            <div
+              className={`dropzone ${isDragOver ? "dragover" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOver(true);
+              }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="dropzone-icon"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="12" y1="18" x2="12" y2="12" />
+                <polyline points="9 15 12 12 15 15" />
+              </svg>
+
+              {uploading ? (
+                <div>
+                  <span className="spinner" style={{ display: "inline-block", marginRight: "0.5rem" }} />
+                  <strong>Sedang membaca dokumen PDF dan mengekstrak klausul...</strong>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: "1rem", color: "var(--text)" }}>
+                    Tarik & letakkan file PDF regulasi di sini, atau <span style={{ color: "var(--primary)", textDecoration: "underline" }}>pilih file</span>
+                  </div>
+                  <div className="muted small" style={{ marginTop: "0.35rem" }}>
+                    Mendukung format PDF resmi BPOM, Permenkes, ISO, CPOB (Maksimal 32 MB)
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{ background: "var(--surface)" }}
-                >
-                  Ganti File PDF
-                </button>
-              </div>
-            ) : (
-              <div
-                className={`dropzone ${isDragOver ? "dragover" : ""}`}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragOver(true);
-                }}
-                onDragLeave={() => setIsDragOver(false)}
-                onDrop={onDrop}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="dropzone-icon"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="12" y1="18" x2="12" y2="12" />
-                  <polyline points="9 15 12 12 15 15" />
-                </svg>
-
-                {uploading ? (
-                  <div>
-                    <span className="spinner" style={{ display: "inline-block", marginRight: "0.5rem" }} />
-                    <strong>Sedang membaca dokumen PDF dan mengekstrak klausul...</strong>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "1rem", color: "var(--text)" }}>
-                      Tarik & letakkan file PDF regulasi di sini, atau <span style={{ color: "var(--primary)", textDecoration: "underline" }}>pilih file</span>
-                    </div>
-                    <div className="muted small" style={{ marginTop: "0.35rem" }}>
-                      Mendukung format PDF resmi BPOM, Permenkes, ISO, CPOB (Maksimal 32 MB)
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {inputMode === "MANUAL" && (
-          <div className="alert alert-info" style={{ marginBottom: "1.25rem" }}>
-            <strong>Mode Input Manual Aktif</strong>: Lengkapi informasi metadata regulasi dan tambahkan baris klausul secara langsung pada tabel di bawah.
-          </div>
-        )}
+              )}
+            </div>
+          )}
+        </div>
 
         {/* 1. Regulation Metadata */}
         <div className="card" style={{ marginTop: "1.25rem" }}>
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>1. Regulation Metadata & Target Site</h2>
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(18rem, 1fr))" }}>
-            <div className="field">
-              <label>Target Sites (Dokumen Gap terpisah per site)</label>
-              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.35rem" }}>
-                {sites.map((s) => {
-                  const isSel = selectedSites.includes(s.id);
-                  return (
-                    <label key={s.id} className={`site-chip ${isSel ? "selected" : ""}`}>
-                      <input
-                        type="checkbox"
-                        checked={isSel}
-                        onChange={() => toggleSite(s.id)}
-                        style={{ width: "16px", height: "16px", cursor: "pointer" }}
-                      />
-                      <span><strong>{s.code}</strong> - {s.name}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
+          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.75rem" }}>1. Regulation Metadata & Target Site</h2>
 
+          <div className="field" style={{ marginBottom: "1.25rem" }}>
+            <label style={{ display: "block", marginBottom: "0.5rem" }}>
+              Target Sites (Dokumen Gap terbit terpisah otomatis per site yang dipilih):
+            </label>
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+              {sites.map((s) => {
+                const isSel = selectedSites.includes(s.id);
+                return (
+                  <label
+                    key={s.id}
+                    className={`site-chip ${isSel ? "selected" : ""}`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSel}
+                      onChange={() => toggleSite(s.id)}
+                      style={{
+                        width: "18px",
+                        height: "18px",
+                        margin: "0 0.55rem 0 0",
+                        accentColor: "var(--primary)",
+                        cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ fontWeight: "normal" }}>
+                      {s.code} - {s.name}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(18rem, 1fr))" }}>
             <div className="field">
               <label htmlFor="category">Regulation Category</label>
               <select
@@ -485,9 +478,6 @@ export default function NewRegulationPage() {
                 Klausul hasil ekstraksi dokumen atau input manual. Klausul bertanda <strong>INFO</strong> dikecualikan dari perhitungan kepatuhan %.
               </p>
             </div>
-            <button type="button" className="btn btn-ghost" onClick={addClause}>
-              + Add Clause
-            </button>
           </div>
 
           <div className="table-wrap">
@@ -500,7 +490,7 @@ export default function NewRegulationPage() {
                   <th style={{ width: "180px" }}>Clause Title (opsional)</th>
                   <th>Requirement Text (Persyaratan)</th>
                   <th style={{ width: "95px", textAlign: "center" }}>Is INFO?</th>
-                  <th style={{ width: "45px" }}>Action</th>
+                  <th style={{ width: "80px", textAlign: "center" }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -568,22 +558,24 @@ export default function NewRegulationPage() {
                         </span>
                       </label>
                     </td>
-                    <td>
+                    <td style={{ textAlign: "center" }}>
                       <button
                         type="button"
+                        className="btn btn-ghost"
                         onClick={() => removeClause(idx)}
                         disabled={clauses.length <= 1}
                         style={{
-                          background: "none",
-                          border: "none",
-                          color: "#c52a2a",
+                          minHeight: "30px",
+                          padding: "0 0.65rem",
+                          fontSize: "0.8rem",
+                          color: "var(--muted)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "6px",
                           cursor: clauses.length <= 1 ? "not-allowed" : "pointer",
-                          fontWeight: 700,
-                          fontSize: "1.1rem",
                         }}
-                        title="Hapus klausul"
+                        title="Hapus baris klausul"
                       >
-                        ×
+                        Delete
                       </button>
                     </td>
                   </tr>

@@ -53,8 +53,8 @@ func ExtractRawText(pdfBytes []byte) string {
 			data = raw
 		}
 
-		// Find BT ... ET blocks
-		btEtRe := regexp.MustCompile(`(?s)BT(.*?)ET`)
+		// Find BT ... ET blocks (ensure BT and ET are standalone PDF operator tokens, not substrings in text like KETENTUAN)
+		btEtRe := regexp.MustCompile(`(?s)(?:^|\s)BT\s+(.*?)\s+ET(?:\s|$)`)
 		textBlocks := btEtRe.FindAllSubmatch(data, -1)
 
 		for _, tb := range textBlocks {
@@ -72,26 +72,41 @@ func ExtractRawText(pdfBytes []byte) string {
 func parseBTBlock(block []byte) string {
 	var b strings.Builder
 
-	// Match (text) Tj or ' or "
-	// Match <hex> Tj
-	// Match [ array ] TJ
-	opRe := regexp.MustCompile(`(?s)(\((?:[^()\\]|\\.)*\)|<[0-9a-fA-F\s]+>|\[(?:[^\[\]\\]|\\.)*\])\s*(Tj|'|"|TJ)`)
+	// Matches:
+	// 1 & 2: Text operators: (text) Tj, <hex> Tj, [array] TJ, ', "
+	// 3 & 4: Td / TD with dy: dx dy Td / TD
+	// 5: T* (next line)
+	// 6: Tm (text matrix)
+	opRe := regexp.MustCompile(`(?s)(\((?:[^()\\]|\\.)*\)|<[0-9a-fA-F\s]+>|\[(?:[^\[\]\\]|\\.)*\])\s*(Tj|'|"|TJ)|(?:[-+]?[0-9]*\.?[0-9]+\s+([-+]?[0-9]*\.?[0-9]+)\s+(Td|TD))|(T\*)|(?:(?:[-+]?[0-9]*\.?[0-9]+\s+){5}[-+]?[0-9]*\.?[0-9]+\s+(Tm))`)
 	matches := opRe.FindAllSubmatch(block, -1)
 
 	for _, m := range matches {
-		operand := string(m[1])
-		op := string(m[2])
+		if len(m[2]) > 0 { // Tj, ', ", TJ
+			operand := string(m[1])
+			op := string(m[2])
 
-		switch op {
-		case "Tj", "'", "\"":
-			text := decodeStringOperand(operand)
-			b.WriteString(text + " ")
-			if op == "'" || op == "\"" {
+			switch op {
+			case "Tj", "'", "\"":
+				text := decodeStringOperand(operand)
+				b.WriteString(text + " ")
+				if op == "'" || op == "\"" {
+					b.WriteString("\n")
+				}
+			case "TJ":
+				text := decodeArrayOperand(operand)
+				b.WriteString(text + " ")
+			}
+		} else if len(m[4]) > 0 { // Td or TD
+			dyStr := string(m[3])
+			dy, _ := strconv.ParseFloat(dyStr, 64)
+			// In PDF coordinates, moving to a new line has non-zero dy (typically negative)
+			if dy != 0 {
 				b.WriteString("\n")
 			}
-		case "TJ":
-			text := decodeArrayOperand(operand)
-			b.WriteString(text + " ")
+		} else if len(m[5]) > 0 { // T*
+			b.WriteString("\n")
+		} else if len(m[6]) > 0 { // Tm
+			b.WriteString("\n")
 		}
 	}
 
@@ -374,11 +389,20 @@ func extractPasalClauses(lines []string) []ParsedClause {
 			})
 			order++
 			currentText.Reset()
+			currentPasal = ""
 		}
 	}
 
+	closingRe := regexp.MustCompile(`(?i)^\s*(Ditetapkan\s+di|Diundangkan\s+di|Agar\s+setiap\s+orang)`)
+
 	for _, l := range lines {
+		if closingRe.MatchString(l) {
+			flush()
+			currentPasal = ""
+			continue
+		}
 		if m := babRe.FindStringSubmatch(l); len(m) > 1 {
+			flush()
 			currentChapter = strings.TrimSpace(m[1])
 			continue
 		}

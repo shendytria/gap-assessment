@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
+import Lampiran3Modal from "@/components/reports/Lampiran3Modal";
 
 type ActionPlanItem = {
   actionPlanId: number;
@@ -52,6 +53,10 @@ export default function ExecutionPage() {
   const [evidenceFilePath, setEvidenceFilePath] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+
+  const canDownload =
+    me?.user.role === "CO_GAP_STAFF" || me?.user.role === "CO_GAP_SUPERVISOR";
 
   useEffect(() => {
     api<{ id: number; code: string; name: string }[]>("/api/sites")
@@ -119,6 +124,18 @@ export default function ExecutionPage() {
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
             Pelaksanaan tindakan perbaikan dan upload bukti pemenuhan klausul (WI-QO-QS-1023.04 Lampiran 3).
           </p>
+        </div>
+        <div>
+          {canDownload && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setShowReportModal(true)}
+              title="Download PDF Bukti Pemenuhan Gap (WI Lampiran 3)"
+            >
+              📥 Download PDF (Lampiran 3)
+            </button>
+          )}
         </div>
       </div>
 
@@ -346,6 +363,16 @@ export default function ExecutionPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Official Execution Report Modal (WI-QO-QS-1023.04 Lampiran 3) */}
+      {showReportModal && (
+        <Lampiran3Modal
+          gapNo="ALL-OUTSTANDING"
+          legalNumber="Seluruh Tindakan Perbaikan (Action Plan Outstanding)"
+          plans={plans}
+          onClose={() => setShowReportModal(false)}
+        />
       )}
     </main>
   );

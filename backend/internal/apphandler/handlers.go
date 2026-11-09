@@ -61,6 +61,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Gap Document & Analysis (008A-C, WI Lampiran 1)
 	mux.Handle("GET /api/gap-documents", authed(h.handleListGapDocuments))
 	mux.Handle("GET /api/gap-documents/{id}", authed(h.handleGetGapDocument))
+	mux.Handle("GET /api/gap-documents/{id}/action-plans", authed(h.handleGetGapActionPlans))
 	mux.Handle("PUT /api/gap-documents/{id}/analysis", authed(h.handleSaveGapAnalysis))
 	mux.Handle("POST /api/gap-documents/{id}/submit", authed(h.handleSubmitGapDocument))
 	mux.Handle("POST /api/gap-documents/{id}/verify", authed(h.handleVerifyGapDocument))
@@ -447,6 +448,20 @@ func (h *Handler) handleGetGapDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, doc)
+}
+
+func (h *Handler) handleGetGapActionPlans(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid gap document ID"))
+		return
+	}
+	plans, err := h.db.ListActionPlansByGapID(r.Context(), id)
+	if err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, plans)
 }
 
 func (h *Handler) handleSaveGapAnalysis(w http.ResponseWriter, r *http.Request) {

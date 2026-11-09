@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
+import Lampiran1Modal from "@/components/reports/Lampiran1Modal";
 
 type GapDocSummary = {
   gapId: number;
@@ -32,11 +34,29 @@ type GapDocSummary = {
 };
 
 export default function GapAnalysisListPage() {
+  const { me } = useSession();
   const [items, setItems] = useState<GapDocSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [siteFilter, setSiteFilter] = useState("");
   const [catFilter, setCatFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [selectedDocForPdf, setSelectedDocForPdf] = useState<any | null>(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
+
+  const canDownload =
+    me?.user.role === "CO_GAP_STAFF" || me?.user.role === "CO_GAP_SUPERVISOR";
+
+  const handleOpenPdf = async (gapId: number) => {
+    setLoadingPdf(true);
+    try {
+      const data = await api<any>(`/api/gap-documents/${gapId}`);
+      setSelectedDocForPdf(data);
+    } catch (err: any) {
+      alert("Gagal memuat dokumen: " + (err?.message || "Error"));
+    } finally {
+      setLoadingPdf(false);
+    }
+  };
 
   const [sites, setSites] = useState<{ id: number; code: string; name: string }[]>([]);
   const [categories, setCategories] = useState<{ id: number; code: string; name: string }[]>([]);
@@ -100,13 +120,10 @@ export default function GapAnalysisListPage() {
         <div>
           <h1 className="page-title">Gap Analysis & Action Plan</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
-            Dokumen analisis kesenjangan peraturan perundangan (WI-QO-QS-1023.04 Lampiran 1).
+            Dokumen analisis kesenjangan peraturan perundangan.
           </p>
         </div>
         <div>
-          <Link href="/regulations/new" className="btn btn-primary">
-            + New Gap Assessment
-          </Link>
         </div>
       </div>
 
@@ -141,7 +158,7 @@ export default function GapAnalysisListPage() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="">All Statuses</option>
+            <option value="">All Status</option>
             <option value="DRAFT">Draft</option>
             <option value="SUPERVISOR_VERIFICATION">Supervisor Verification</option>
             <option value="APPROVAL_STAGE1">Approval Stage 1</option>
@@ -219,9 +236,23 @@ export default function GapAnalysisListPage() {
                     </span>
                   </td>
                   <td>
-                    <Link href={`/gap-analysis/${doc.gapId}`} className="btn btn-ghost" style={{ minHeight: "32px", fontSize: "0.8rem", padding: "0 0.65rem" }}>
-                      Open Matrix
-                    </Link>
+                    <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
+                      <Link href={`/gap-analysis/${doc.gapId}`} className="btn btn-ghost" style={{ minHeight: "32px", fontSize: "0.8rem", padding: "0 0.65rem" }}>
+                        Open Matrix
+                      </Link>
+                      {canDownload && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ minHeight: "32px", fontSize: "0.8rem", padding: "0 0.65rem" }}
+                          onClick={() => handleOpenPdf(doc.gapId)}
+                          disabled={loadingPdf}
+                          title="Download PDF Laporan Identifikasi & Evaluasi"
+                        >
+                          PDF
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -229,6 +260,14 @@ export default function GapAnalysisListPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Official Gap Analysis Report Modal (WI-QO-QS-1023.04 Lampiran 1) */}
+      {selectedDocForPdf && (
+        <Lampiran1Modal
+          doc={selectedDocForPdf}
+          onClose={() => setSelectedDocForPdf(null)}
+        />
+      )}
     </main>
   );
 }

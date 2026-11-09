@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
+import Lampiran1Modal from "@/components/reports/Lampiran1Modal";
+import Lampiran3Modal from "@/components/reports/Lampiran3Modal";
 
 type GapAnalysisRow = {
   gapAnalysisId: number;
@@ -63,6 +65,10 @@ type GapDocDetail = {
   pct0: number;
   createdByName: string;
   createdAt: string;
+  verifiedByName?: string;
+  verifiedAt?: string | null;
+  changeNotes?: any[];
+  approvals?: any[];
   clauses: GapAnalysisRow[];
 };
 
@@ -84,6 +90,30 @@ export default function GapAnalysisDetailPage() {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [returnDraft, setReturnDraft] = useState(false);
   const [returnNotes, setReturnNotes] = useState("");
+
+  // Report Modals (Lampiran 1 & 3 per WI-QO-QS-1023.04 & URS 010A/B)
+  const [showLampiran1, setShowLampiran1] = useState(false);
+  const [showLampiran3, setShowLampiran3] = useState(false);
+  const [lampiran3Plans, setLampiran3Plans] = useState<any[]>([]);
+  const [loadingL3, setLoadingL3] = useState(false);
+
+  const canDownload =
+    me?.user.role === "CO_GAP_STAFF" || me?.user.role === "CO_GAP_SUPERVISOR";
+
+  const handleOpenLampiran3 = async () => {
+    if (!doc) return;
+    setLoadingL3(true);
+    try {
+      const data = await api<any[]>(`/api/gap-documents/${doc.gapId}/action-plans`);
+      setLampiran3Plans(data || []);
+      setShowLampiran3(true);
+    } catch {
+      setLampiran3Plans([]);
+      setShowLampiran3(true);
+    } finally {
+      setLoadingL3(false);
+    }
+  };
 
   const loadDoc = () => {
     if (!gapId) return;
@@ -278,7 +308,28 @@ export default function GapAnalysisDetailPage() {
             Legal Number: <strong>{doc.legalNumber}</strong> | Effective Date: {new Date(doc.effectiveDate).toLocaleDateString()} | Created by: {doc.createdByName}
           </p>
         </div>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+          {canDownload && (
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowLampiran1(true)}
+                title="Download PDF Laporan Identifikasi & Evaluasi (WI Lampiran 1)"
+              >
+                📄 PDF Lampiran 1
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleOpenLampiran3}
+                disabled={loadingL3}
+                title="Download PDF Bukti Pemenuhan Gap (WI Lampiran 3)"
+              >
+                {loadingL3 ? "Loading..." : "📋 PDF Lampiran 3"}
+              </button>
+            </>
+          )}
           {canEdit && (
             <button
               type="button"
@@ -626,6 +677,21 @@ export default function GapAnalysisDetailPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Official Report Modals (WI-QO-QS-1023.04 Lampiran 1 & 3) */}
+      {showLampiran1 && doc && (
+        <Lampiran1Modal doc={doc} onClose={() => setShowLampiran1(false)} />
+      )}
+
+      {showLampiran3 && doc && (
+        <Lampiran3Modal
+          gapNo={doc.gapNo}
+          legalNumber={doc.legalNumber}
+          regulationTitle={doc.regulationTitle}
+          plans={lampiran3Plans}
+          onClose={() => setShowLampiran3(false)}
+        />
       )}
     </main>
   );
