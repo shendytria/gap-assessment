@@ -18,8 +18,10 @@ type userDTO struct {
 	Initials       string `json:"initials"`
 	Role           string `json:"role"`
 	RoleName       string `json:"roleName"`
+	DepartmentID   *int   `json:"departmentId"`
 	Department     string `json:"department"`
 	DepartmentName string `json:"departmentName"`
+	SiteID         *int   `json:"siteId"`
 	Site           string `json:"site"`
 	SiteName       string `json:"siteName"`
 }
@@ -28,7 +30,7 @@ func toDTO(u *store.User) userDTO {
 	return userDTO{
 		ID: u.ID, Username: u.Username, FullName: u.FullName, Email: u.Email, JobTitle: u.JobTitle,
 		Initials: u.Initials, Role: u.RoleCode, RoleName: u.RoleName,
-		Department: u.DepartmentCode, DepartmentName: u.DepartmentName, Site: u.SiteCode, SiteName: u.SiteName,
+		DepartmentID: u.DepartmentID, Department: u.DepartmentCode, DepartmentName: u.DepartmentName, SiteID: u.SiteID, Site: u.SiteCode, SiteName: u.SiteName,
 	}
 }
 

@@ -39,6 +39,10 @@ func run() error {
 	}
 	defer db.Close()
 
+	if err := db.EnsureSchema(ctx); err != nil {
+		return err
+	}
+
 	svc, err := auth.NewService(cfg, db, os.Getenv("TRUST_PROXY") == "1")
 	if err != nil {
 		return err

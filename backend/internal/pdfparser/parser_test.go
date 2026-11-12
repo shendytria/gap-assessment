@@ -2,7 +2,6 @@ package pdfparser
 
 import (
 	"os"
-	"regexp"
 	"testing"
 )
 
@@ -90,5 +89,33 @@ func TestSampleFile(t *testing.T) {
 	}
 	if res.Clauses[1].ClauseNo != "Pasal 2" || res.Clauses[1].IsInfo {
 		t.Errorf("Expected Pasal 2 with IsInfo=false, got %+v", res.Clauses[1])
+	}
+}
+
+func TestRealBPOMPDF(t *testing.T) {
+	path := os.Getenv("REAL_PDF_PATH")
+	if path == "" {
+		t.Skip("REAL_PDF_PATH not set")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	raw := ExtractRawText(b)
+	res := ParseRegulationDocument(raw)
+	dateStr := "<nil>"
+	if res.PublishedDate != nil {
+		dateStr = *res.PublishedDate
+	}
+	t.Logf("LegalNumber=%q Title=%q Date=%s Clauses=%d", res.LegalNumber, res.Title, dateStr, len(res.Clauses))
+	seen := map[string]bool{}
+	for i, c := range res.Clauses {
+		if seen[c.ClauseNo] {
+			t.Errorf("Duplicate ClauseNo: %s", c.ClauseNo)
+		}
+		seen[c.ClauseNo] = true
+		if i < 5 || i >= len(res.Clauses)-5 {
+			t.Logf("Clause[%d]: ch=%q no=%q info=%v text=%.80q", i, c.Chapter, c.ClauseNo, c.IsInfo, c.RequirementText)
+		}
 	}
 }

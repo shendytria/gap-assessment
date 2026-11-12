@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"strings"
+	"time"
 )
 
 type ComplianceMetric struct {
@@ -20,23 +22,43 @@ type GroupedMetric struct {
 	ComplianceMetric
 }
 
+type OutstandingGapTask struct {
+	GapID           int        `json:"gapId"`
+	GapNo           string     `json:"gapNo"`
+	LegalNumber     string     `json:"legalNumber"`
+	RegulationTitle string     `json:"regulationTitle"`
+	SiteCode        string     `json:"siteCode"`
+	CategoryCode    string     `json:"categoryCode"`
+	WorkflowStatus  string     `json:"workflowStatus"`
+	TaskType        string     `json:"taskType"` // "DRAFT" | "RETURNED_DRAFT" | "SUPERVISOR_VERIFICATION" | "ACTION_PLAN"
+	ReturnNotes     string     `json:"returnNotes"`
+	ReturnedByName  string     `json:"returnedByName"`
+	ReturnedAt      *time.Time `json:"returnedAt"`
+	SubmittedAt     *time.Time `json:"submittedAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+}
+
 type DashboardSummary struct {
-	OverallCompliance   ComplianceMetric  `json:"overallCompliance"`
-	ActiveRegulations   int               `json:"activeRegulations"`
-	PendingApprovals    int               `json:"pendingApprovals"`
-	OverdueActionPlans  int               `json:"overdueActionPlans"`
-	BySite              []GroupedMetric   `json:"bySite"`
-	ByCategory          []GroupedMetric   `json:"byCategory"`
-	UserPendingApprovals []ApprovalTask    `json:"userPendingApprovals"`
-	UserOutstandingPlans []ActionPlanItem  `json:"userOutstandingPlans"`
+	OverallCompliance          ComplianceMetric     `json:"overallCompliance"`
+	ActiveRegulations          int                  `json:"activeRegulations"`
+	PendingApprovals           int                  `json:"pendingApprovals"`
+	OverdueActionPlans         int                  `json:"overdueActionPlans"`
+	BySite                     []GroupedMetric      `json:"bySite"`
+	ByCategory                 []GroupedMetric      `json:"byCategory"`
+	UserPendingApprovals       []ApprovalTask       `json:"userPendingApprovals"`
+	UserOutstandingPlans       []ActionPlanItem     `json:"userOutstandingPlans"`
+	UserOutstandingDocs        []OutstandingGapTask `json:"userOutstandingDocs"`
+	UserExecutionVerifications []ActionPlanItem     `json:"userExecutionVerifications"`
 }
 
 func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, categoryID *int) (*DashboardSummary, error) {
 	d := &DashboardSummary{
-		BySite:               []GroupedMetric{},
-		ByCategory:           []GroupedMetric{},
-		UserPendingApprovals: []ApprovalTask{},
-		UserOutstandingPlans: []ActionPlanItem{},
+		BySite:                     []GroupedMetric{},
+		ByCategory:                 []GroupedMetric{},
+		UserPendingApprovals:       []ApprovalTask{},
+		UserOutstandingPlans:       []ActionPlanItem{},
+		UserOutstandingDocs:        []OutstandingGapTask{},
+		UserExecutionVerifications: []ActionPlanItem{},
 	}
 
 	// Overall compliance
@@ -85,9 +107,121 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 	d.UserPendingApprovals = apprs
 	d.PendingApprovals = len(apprs)
 
-	// Outstanding plans for user
-	plans, _ := s.ListOutstandingActionPlans(ctx, &userID, nil, siteID)
+	// Outstanding plans & workflow tasks for user
+	actorUser, _ := s.UserByID(ctx, userID)
+	plans, _ := s.ListOutstandingActionPlans(ctx, actorUser, &userID, nil, siteID)
 	d.UserOutstandingPlans = plans
+
+	if actorUser != nil {
+		switch actorUser.RoleCode {
+		case "CO_GAP_STAFF":
+			rows, err := s.Pool.Query(ctx, `
+				SELECT g.gap_id, g.gap_no, r.legal_number, r.title, s.site_code, c.category_code,
+				       g.workflow_status::text, COALESCE(g.return_notes,''), COALESCE(u_ret.full_name,''),
+				       g.returned_at, g.submitted_at, g.updated_at
+				FROM gap_document g
+				JOIN regulation r ON r.regulation_id = g.regulation_id
+				JOIN site s ON s.site_id = g.site_id
+				JOIN category c ON c.category_id = g.category_id
+				LEFT JOIN users u_ret ON u_ret.user_id = g.returned_by
+				WHERE g.workflow_status IN ('DRAFT', 'STAFF_REVIEW')
+				  AND ($1::smallint IS NULL OR g.site_id = $1::smallint)
+				  AND ($2::smallint IS NULL OR g.category_id = $2::smallint)
+				ORDER BY (g.workflow_status = 'STAFF_REVIEW') DESC,
+				         (g.returned_at IS NOT NULL OR COALESCE(g.return_notes,'') <> '') DESC,
+				         COALESCE(g.submitted_at, g.returned_at, g.updated_at) DESC`, siteID, categoryID)
+			if err == nil {
+				for rows.Next() {
+					var it OutstandingGapTask
+					if rows.Scan(&it.GapID, &it.GapNo, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
+						&it.WorkflowStatus, &it.ReturnNotes, &it.ReturnedByName,
+						&it.ReturnedAt, &it.SubmittedAt, &it.UpdatedAt) == nil {
+						if it.WorkflowStatus == "STAFF_REVIEW" {
+							it.TaskType = "STAFF_REVIEW"
+						} else if it.ReturnedAt != nil || strings.TrimSpace(it.ReturnNotes) != "" {
+							it.TaskType = "RETURNED_DRAFT"
+						} else {
+							it.TaskType = "DRAFT"
+						}
+						d.UserOutstandingDocs = append(d.UserOutstandingDocs, it)
+					}
+				}
+				rows.Close()
+			}
+		case "CO_GAP_SUPERVISOR":
+			rows, err := s.Pool.Query(ctx, `
+				SELECT g.gap_id, g.gap_no, r.legal_number, r.title, s.site_code, c.category_code,
+				       g.workflow_status::text, COALESCE(g.return_notes,''), COALESCE(u_ret.full_name,''),
+				       g.returned_at, g.submitted_at, g.updated_at
+				FROM gap_document g
+				JOIN regulation r ON r.regulation_id = g.regulation_id
+				JOIN site s ON s.site_id = g.site_id
+				JOIN category c ON c.category_id = g.category_id
+				LEFT JOIN users u_ret ON u_ret.user_id = g.returned_by
+				WHERE g.workflow_status = 'SUPERVISOR_VERIFICATION'
+				  AND ($1::smallint IS NULL OR g.site_id = $1::smallint)
+				  AND ($2::smallint IS NULL OR g.category_id = $2::smallint)
+				ORDER BY COALESCE(g.submitted_at, g.updated_at) DESC`, siteID, categoryID)
+			if err == nil {
+				for rows.Next() {
+					var it OutstandingGapTask
+					if rows.Scan(&it.GapID, &it.GapNo, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
+						&it.WorkflowStatus, &it.ReturnNotes, &it.ReturnedByName,
+						&it.ReturnedAt, &it.SubmittedAt, &it.UpdatedAt) == nil {
+						it.TaskType = "SUPERVISOR_VERIFICATION"
+						d.UserOutstandingDocs = append(d.UserOutstandingDocs, it)
+					}
+				}
+				rows.Close()
+			}
+
+			allExec, errExec := s.ListOutstandingActionPlans(ctx, actorUser, nil, nil, siteID)
+			if errExec == nil {
+				for _, item := range allExec {
+					if item.ExecutionStatus == "PENDING_VERIFICATION" || item.PendingDueChange != nil {
+						d.UserExecutionVerifications = append(d.UserExecutionVerifications, item)
+					}
+				}
+			}
+		case "PIC_AREA":
+			rows, err := s.Pool.Query(ctx, `
+				SELECT DISTINCT g.gap_id, g.gap_no, r.legal_number, r.title, s.site_code, c.category_code,
+				       g.workflow_status::text, COALESCE(g.return_notes,''), COALESCE(u_ret.full_name,''),
+				       g.returned_at, g.submitted_at, g.updated_at
+				FROM gap_document g
+				JOIN regulation r ON r.regulation_id = g.regulation_id
+				JOIN site s ON s.site_id = g.site_id
+				JOIN category c ON c.category_id = g.category_id
+				JOIN gap_analysis ga ON ga.gap_id = g.gap_id
+				JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+				LEFT JOIN action_plan ap ON ap.gap_analysis_id = ga.gap_analysis_id
+				LEFT JOIN users u_ret ON u_ret.user_id = g.returned_by
+				WHERE g.workflow_status = 'ACTION_PLAN'
+				  AND ga.is_applicable = TRUE
+				  AND rc.is_info = FALSE
+				  AND (ga.in_procedure = FALSE OR ga.in_practice = FALSE)
+				  AND ($1::smallint IS NULL OR g.site_id = $1::smallint)
+				  AND ($2::smallint IS NULL OR g.category_id = $2::smallint)
+				  AND ($5::smallint IS NULL OR g.site_id = $5::smallint)
+				  AND ($3::int IS NULL OR ap.pic_user_id = $3::int
+				       OR ga.dept_in_control_id = $4::int
+				       OR ga.dept_in_control_all = TRUE
+				       OR EXISTS (SELECT 1 FROM gap_analysis_dept gd WHERE gd.gap_analysis_id = ga.gap_analysis_id AND gd.department_id = $4::int))
+				ORDER BY g.updated_at DESC`, siteID, categoryID, userID, actorUser.DepartmentID, actorUser.SiteID)
+			if err == nil {
+				for rows.Next() {
+					var it OutstandingGapTask
+					if rows.Scan(&it.GapID, &it.GapNo, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
+						&it.WorkflowStatus, &it.ReturnNotes, &it.ReturnedByName,
+						&it.ReturnedAt, &it.SubmittedAt, &it.UpdatedAt) == nil {
+						it.TaskType = "ACTION_PLAN"
+						d.UserOutstandingDocs = append(d.UserOutstandingDocs, it)
+					}
+				}
+				rows.Close()
+			}
+		}
+	}
 
 	// Breakdown by Site
 	siteRows, err := s.Pool.Query(ctx, `

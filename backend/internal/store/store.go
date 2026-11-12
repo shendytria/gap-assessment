@@ -74,6 +74,7 @@ type User struct {
 	RoleID             int
 	RoleCode           string
 	RoleName           string
+	DepartmentID       *int
 	DepartmentCode     string
 	DepartmentName     string
 	SiteID             *int
@@ -90,7 +91,7 @@ type User struct {
 const userSelect = `
 SELECT u.user_id, u.username, u.full_name, u.email, COALESCE(u.job_title,''), COALESCE(u.initials,''),
        r.role_id, r.role_code, r.role_name,
-       COALESCE(d.department_code,''), COALESCE(d.department_name,''),
+       u.department_id, COALESCE(d.department_code,''), COALESCE(d.department_name,''),
        u.site_id, COALESCE(s.site_code,''), COALESCE(s.site_name,''),
        u.password_hash, u.must_change_password, u.password_changed_at,
        u.failed_login_count, u.locked_until, u.is_active
@@ -104,7 +105,7 @@ func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Username, &u.FullName, &u.Email, &u.JobTitle, &u.Initials,
 		&u.RoleID, &u.RoleCode, &u.RoleName,
-		&u.DepartmentCode, &u.DepartmentName,
+		&u.DepartmentID, &u.DepartmentCode, &u.DepartmentName,
 		&u.SiteID, &u.SiteCode, &u.SiteName,
 		&u.PasswordHash, &u.MustChangePassword, &u.PasswordChangedAt,
 		&u.FailedLoginCount, &u.LockedUntil, &u.IsActive)

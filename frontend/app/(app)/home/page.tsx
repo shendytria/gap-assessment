@@ -27,6 +27,27 @@ type GroupedMetric = {
   pct0: number;
 };
 
+type OutstandingGapTask = {
+  gapId: number;
+  gapNo: string;
+  legalNumber: string;
+  regulationTitle: string;
+  siteCode: string;
+  categoryCode: string;
+  workflowStatus: string;
+  taskType:
+    | "DRAFT"
+    | "RETURNED_DRAFT"
+    | "SUPERVISOR_VERIFICATION"
+    | "ACTION_PLAN"
+    | "STAFF_REVIEW";
+  returnNotes: string;
+  returnedByName: string;
+  returnedAt: string | null;
+  submittedAt: string | null;
+  updatedAt: string;
+};
+
 type DashboardData = {
   overallCompliance: ComplianceMetric;
   activeRegulations: number;
@@ -36,6 +57,8 @@ type DashboardData = {
   byCategory: GroupedMetric[];
   userPendingApprovals: any[];
   userOutstandingPlans: any[];
+  userOutstandingDocs: OutstandingGapTask[];
+  userExecutionVerifications: any[];
 };
 
 export default function HomePage() {
@@ -253,95 +276,280 @@ export default function HomePage() {
           </section>
         </div>
 
-        {/* My Tasks: Pending Approvals & Outstanding Plans */}
+        {/* My Tasks: My Outstanding (Draft / Returned / Verification / Execution) & Pending Approvals */}
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          <section className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-              <h2>My Pending Approvals</h2>
-              <Link href="/approvals" className="btn btn-ghost" style={{ fontSize: "0.8rem", minHeight: "32px", padding: "0 0.6rem" }}>
-                View All
-              </Link>
-            </div>
-            {data?.userPendingApprovals && data.userPendingApprovals.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                {data.userPendingApprovals.slice(0, 4).map((a) => (
-                  <div
-                    key={a.approvalId}
-                    style={{
-                      padding: "0.75rem",
-                      border: "1px solid var(--border)",
-                      borderRadius: "8px",
-                      background: "var(--surface-2)",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span className="badge badge-info">{a.stage}</span>
-                      <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{a.siteCode}</span>
-                    </div>
-                    <div style={{ fontWeight: 600, marginTop: "0.3rem" }}>{a.gapNo}</div>
-                    <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{a.regulationTitle}</div>
-                    <div style={{ marginTop: "0.5rem" }}>
-                      <Link href={`/approvals`} className="btn btn-primary" style={{ minHeight: "30px", fontSize: "0.8rem", padding: "0 0.75rem" }}>
-                        Review & Sign
-                      </Link>
-                    </div>
-                  </div>
-                ))}
+          {(me.user.role === "CO_GAP_STAFF" ||
+            me.user.role === "CO_GAP_SUPERVISOR" ||
+            me.user.role === "PIC_AREA" ||
+            (data?.userOutstandingDocs && data.userOutstandingDocs.length > 0)) && (
+            <section className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <h2>My Outstanding</h2>
+                <Link
+                  href="/gap-analysis"
+                  className="btn btn-ghost"
+                  style={{ fontSize: "0.8rem", minHeight: "32px", padding: "0 0.6rem" }}
+                >
+                  View All
+                </Link>
               </div>
-            ) : (
-              <p className="muted small">No pending approval requests assigned to you.</p>
-            )}
-          </section>
 
-          <section className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-              <h2>My Outstanding Action Plans</h2>
-              <Link href="/execution" className="btn btn-ghost" style={{ fontSize: "0.8rem", minHeight: "32px", padding: "0 0.6rem" }}>
-                View All
-              </Link>
-            </div>
-            {data?.userOutstandingPlans && data.userOutstandingPlans.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                {data.userOutstandingPlans.slice(0, 4).map((p) => (
-                  <div
-                    key={p.actionPlanId}
-                    style={{
-                      padding: "0.75rem",
-                      border: "1px solid var(--border)",
-                      borderRadius: "8px",
-                      background: "var(--surface-2)",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span className={`badge ${p.monitoringStatus === "Overdue" ? "badge-err" : "badge-warn"}`}>
-                        {p.monitoringStatus} {p.overdueDays > 0 ? `(${p.overdueDays}d)` : ""}
-                      </span>
-                      <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
-                        Due: {new Date(p.dueDate).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div style={{ fontWeight: 600, marginTop: "0.3rem" }}>
-                      {p.gapNo} — Clause {p.clauseNo}
-                    </div>
-                    <div style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.2rem 0 0.5rem" }}>
-                      {p.planText}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <div className="progress-bar" style={{ flex: 1, margin: 0 }}>
+              {(() => {
+                const docs = data?.userOutstandingDocs || [];
+                const execVerifs = data?.userExecutionVerifications || [];
+                const totalItems = docs.length + execVerifs.length;
+
+                if (totalItems === 0) {
+                  return (
+                    <p className="muted small">
+                      {me.user.role === "CO_GAP_SUPERVISOR"
+                        ? "No outstanding documents or action plans waiting for verification."
+                        : me.user.role === "CO_GAP_STAFF"
+                        ? "No drafts or returned documents waiting to be worked on."
+                        : me.user.role === "PIC_AREA"
+                        ? "No documents waiting for Action Plan submission."
+                        : "No outstanding tasks."}
+                    </p>
+                  );
+                }
+
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+                    {docs.slice(0, 5).map((d) => {
+                      const isReturned = d.taskType === "RETURNED_DRAFT";
+                      const isSupVerify = d.taskType === "SUPERVISOR_VERIFICATION";
+                      const isStaffReview = d.taskType === "STAFF_REVIEW";
+                      const isActionPlan = d.taskType === "ACTION_PLAN";
+                      const badgeClass = isReturned
+                        ? "badge-err"
+                        : isSupVerify || isStaffReview
+                        ? "badge-warn"
+                        : "badge-info";
+                      const badgeText = isReturned
+                        ? "Returned by Supervisor"
+                        : isSupVerify
+                        ? "Submitted for Verification"
+                        : isStaffReview
+                        ? "Action Plan Check"
+                        : isActionPlan
+                        ? "Action Plan Needed"
+                        : "Draft";
+                      const actionLabel = isSupVerify
+                        ? "Verify Document"
+                        : isReturned
+                        ? "Perbaiki Return"
+                        : isStaffReview
+                        ? "Periksa Action Plan"
+                        : isActionPlan
+                        ? "Isi Action Plan"
+                        : "Lanjutkan Draft";
+
+                      return (
                         <div
-                          className="progress-fill progress-fill-ok"
-                          style={{ width: `${p.progressPct}%` }}
-                        />
+                          key={`doc-${d.gapId}`}
+                          style={{
+                            padding: "0.75rem",
+                            border: `1px solid ${isReturned ? "#fca5a5" : "var(--border)"}`,
+                            borderRadius: "8px",
+                            background: isReturned ? "#fef2f2" : "var(--surface-2)",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                            <span className={`badge ${badgeClass}`}>{badgeText}</span>
+                            <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                              {d.siteCode} • {d.categoryCode}
+                            </span>
+                          </div>
+                          <div style={{ fontWeight: 700, marginTop: "0.35rem" }}>{d.gapNo}</div>
+                          <div style={{ fontSize: "0.84rem", color: "var(--muted)" }}>
+                            {d.legalNumber} — {d.regulationTitle}
+                          </div>
+                          {(isReturned || isActionPlan) && d.returnNotes && (
+                            <div
+                              style={{
+                                marginTop: "0.4rem",
+                                padding: "0.45rem 0.6rem",
+                                borderRadius: "6px",
+                                background: "#fff8e1",
+                                color: "#6b4f00",
+                                fontSize: "0.8rem",
+                              }}
+                            >
+                              <strong>Catatan Return{d.returnedByName ? ` (${d.returnedByName})` : ""}:</strong>{" "}
+                              {d.returnNotes}
+                            </div>
+                          )}
+                          <div style={{ marginTop: "0.55rem" }}>
+                            <Link
+                              href={`/gap-analysis/${d.gapId}?from=/home`}
+                              className="btn btn-primary"
+                              style={{ minHeight: "30px", fontSize: "0.8rem", padding: "0 0.75rem" }}
+                            >
+                              {actionLabel}
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {execVerifs.slice(0, 5).map((p) => (
+                      <div
+                        key={`exec-${p.actionPlanId}`}
+                        style={{
+                          padding: "0.75rem",
+                          border: "1px solid var(--border)",
+                          borderRadius: "8px",
+                          background: "var(--surface-2)",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                          <span className="badge badge-warn">
+                            {p.executionStatus === "PENDING_VERIFICATION"
+                              ? "Execution Verification (Stage 2)"
+                              : "Due Date Change Request"}
+                          </span>
+                          <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                            {p.siteCode} • {p.deptCode}
+                          </span>
+                        </div>
+                        <div style={{ fontWeight: 700, marginTop: "0.35rem" }}>
+                          {p.gapNo} — Clause {p.clauseNo}
+                        </div>
+                        <div style={{ fontSize: "0.84rem", color: "var(--muted)" }}>
+                          PIC: <strong>{p.picName}</strong> • {p.planText}
+                        </div>
+                        {p.closeDate && (
+                          <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.2rem" }}>
+                            Close Date: {new Date(p.closeDate).toLocaleDateString()}
+                            {p.leadTimeDays !== null ? ` (Lead time: ${p.leadTimeDays} hari)` : ""}
+                          </div>
+                        )}
+                        <div style={{ marginTop: "0.55rem" }}>
+                          <Link
+                            href="/execution"
+                            className="btn btn-primary"
+                            style={{ minHeight: "30px", fontSize: "0.8rem", padding: "0 0.75rem" }}
+                          >
+                            {p.executionStatus === "PENDING_VERIFICATION"
+                              ? "Verify Action Plan"
+                              : "Verify Due Date"}
+                          </Link>
+                        </div>
                       </div>
-                      <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>{p.progressPct}%</span>
-                    </div>
+                    ))}
                   </div>
-                ))}
+                );
+              })()}
+            </section>
+          )}
+
+          {(data?.userPendingApprovals?.length || 0) > 0 ||
+          (me.user.role !== "CO_GAP_STAFF" && me.user.role !== "CO_GAP_SUPERVISOR" && me.user.role !== "PIC_AREA") ? (
+            <section className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <h2>My Pending Approvals</h2>
+                <Link href="/approvals" className="btn btn-ghost" style={{ fontSize: "0.8rem", minHeight: "32px", padding: "0 0.6rem" }}>
+                  View All
+                </Link>
               </div>
-            ) : (
-              <p className="muted small">No outstanding action plans assigned to you.</p>
-            )}
-          </section>
+              {data?.userPendingApprovals && data.userPendingApprovals.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  {data.userPendingApprovals.slice(0, 4).map((a) => (
+                    <div
+                      key={a.approvalId}
+                      style={{
+                        padding: "0.75rem",
+                        border: "1px solid var(--border)",
+                        borderRadius: "8px",
+                        background: "var(--surface-2)",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span className="badge badge-info">{a.stage}</span>
+                        <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{a.siteCode}</span>
+                      </div>
+                      <div style={{ fontWeight: 600, marginTop: "0.3rem" }}>{a.gapNo}</div>
+                      <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{a.regulationTitle}</div>
+                      <div style={{ marginTop: "0.5rem" }}>
+                        <Link href={`/approvals`} className="btn btn-primary" style={{ minHeight: "30px", fontSize: "0.8rem", padding: "0 0.75rem" }}>
+                          Review & Sign
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted small">No pending approval requests assigned to you.</p>
+              )}
+            </section>
+          ) : null}
+
+          {(me.user.role === "PIC_AREA" || (data?.userOutstandingPlans?.length || 0) > 0) && (
+            <section className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <h2>My Outstanding Action Plans</h2>
+                <Link href="/execution" className="btn btn-ghost" style={{ fontSize: "0.8rem", minHeight: "32px", padding: "0 0.6rem" }}>
+                  View All
+                </Link>
+              </div>
+              {data?.userOutstandingPlans && data.userOutstandingPlans.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  {data.userOutstandingPlans.slice(0, 4).map((p) => (
+                    <div
+                      key={p.actionPlanId}
+                      style={{
+                        padding: "0.75rem",
+                        border: "1px solid var(--border)",
+                        borderRadius: "8px",
+                        background: "var(--surface-2)",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span className={`badge ${p.monitoringStatus === "Overdue" ? "badge-err" : "badge-warn"}`}>
+                          {p.monitoringStatus} {p.overdueDays > 0 ? `(${p.overdueDays}d)` : ""}
+                        </span>
+                        <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                          Due: {new Date(p.dueDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div style={{ fontWeight: 600, marginTop: "0.3rem" }}>
+                        {p.gapNo} — Clause {p.clauseNo}
+                      </div>
+                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0.2rem 0 0.5rem" }}>
+                        {p.planText}
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                        <span
+                          className={`badge ${
+                            p.executionStatus === "VERIFIED"
+                              ? "badge-ok"
+                              : p.executionStatus === "PENDING_VERIFICATION"
+                              ? "badge-warn"
+                              : "badge-info"
+                          }`}
+                        >
+                          {p.executionStatus === "VERIFIED"
+                            ? "Verified (Stage 2)"
+                            : p.executionStatus === "PENDING_VERIFICATION"
+                            ? "Completed – Submit for Verification"
+                            : "In Progress"}
+                        </span>
+                        <Link
+                          href="/execution"
+                          className="btn btn-ghost"
+                          style={{ minHeight: "28px", fontSize: "0.78rem", padding: "0 0.6rem" }}
+                        >
+                          Open Execution
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted small">No outstanding action plans assigned to you.</p>
+              )}
+            </section>
+          )}
         </div>
       </div>
     </main>

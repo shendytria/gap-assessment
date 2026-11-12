@@ -693,7 +693,7 @@ export default function SettingsPage() {
             <form onSubmit={handleUserSubmit}>
               {!editingUser && (
                 <div className="field">
-                  <label htmlFor="u_username">Username (Unique)</label>
+                  <label htmlFor="u_username">Username (Unique) <span style={{ color: "#c52a2a" }}>*</span></label>
                   <input
                     id="u_username"
                     type="text"
@@ -708,7 +708,7 @@ export default function SettingsPage() {
               )}
 
               <div className="field">
-                <label htmlFor="u_fullname">Full Name</label>
+                <label htmlFor="u_fullname">Full Name <span style={{ color: "#c52a2a" }}>*</span></label>
                 <input
                   id="u_fullname"
                   type="text"
@@ -719,7 +719,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="u_email">Email</label>
+                <label htmlFor="u_email">Email <span style={{ color: "#c52a2a" }}>*</span></label>
                 <input
                   id="u_email"
                   type="email"
@@ -753,7 +753,7 @@ export default function SettingsPage() {
 
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", margin: 0 }}>
                 <div className="field">
-                  <label htmlFor="u_site">Site</label>
+                  <label htmlFor="u_site">Site <span style={{ color: "#c52a2a" }}>*</span></label>
                   <select
                     id="u_site"
                     className="filter-select"
@@ -769,7 +769,7 @@ export default function SettingsPage() {
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="u_role">Role</label>
+                  <label htmlFor="u_role">Role <span style={{ color: "#c52a2a" }}>*</span></label>
                   <select
                     id="u_role"
                     className="filter-select"
@@ -828,7 +828,7 @@ export default function SettingsPage() {
 
             <form onSubmit={handleDelegationSubmit}>
               <div className="field">
-                <label htmlFor="d_site">Site</label>
+                <label htmlFor="d_site">Site <span style={{ color: "#c52a2a" }}>*</span></label>
                 <select
                   id="d_site"
                   className="filter-select"
@@ -845,7 +845,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="d_role">Role to Delegate</label>
+                <label htmlFor="d_role">Role to Delegate <span style={{ color: "#c52a2a" }}>*</span></label>
                 <select
                   id="d_role"
                   className="filter-select"
@@ -862,7 +862,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="d_principal">Principal Approver (Approver Asli)</label>
+                <label htmlFor="d_principal">Principal Approver (Approver Asli) <span style={{ color: "#c52a2a" }}>*</span></label>
                 <select
                   id="d_principal"
                   className="filter-select"
@@ -881,7 +881,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="d_delegate">Delegate Approver (Pengganti Berwenang)</label>
+                <label htmlFor="d_delegate">Delegate Approver (Pengganti Berwenang) <span style={{ color: "#c52a2a" }}>*</span></label>
                 <select
                   id="d_delegate"
                   className="filter-select"
@@ -901,7 +901,7 @@ export default function SettingsPage() {
 
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", margin: 0 }}>
                 <div className="field">
-                  <label htmlFor="d_start">Start Date</label>
+                  <label htmlFor="d_start">Start Date <span style={{ color: "#c52a2a" }}>*</span></label>
                   <input
                     id="d_start"
                     type="date"
@@ -922,7 +922,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="d_reason">Reason for Delegation</label>
+                <label htmlFor="d_reason">Reason for Delegation <span style={{ color: "#c52a2a" }}>*</span></label>
                 <textarea
                   id="d_reason"
                   rows={2}
@@ -965,7 +965,7 @@ export default function SettingsPage() {
 
             <form onSubmit={handleDeptSubmit}>
               <div className="field">
-                <label htmlFor="dept_site">Target Site</label>
+                <label htmlFor="dept_site">Target Site <span style={{ color: "#c52a2a" }}>*</span></label>
                 <select
                   id="dept_site"
                   className="filter-select"
@@ -984,7 +984,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="dept_code">Department Code (misal: QC, QA, PR, WH)</label>
+                <label htmlFor="dept_code">Department Code (misal: QC, QA, PR, WH) <span style={{ color: "#c52a2a" }}>*</span></label>
                 <input
                   id="dept_code"
                   type="text"
@@ -998,7 +998,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="dept_name">Department Name (Nama Lengkap Departemen)</label>
+                <label htmlFor="dept_name">Department Name (Nama Lengkap Departemen) <span style={{ color: "#c52a2a" }}>*</span></label>
                 <input
                   id="dept_name"
                   type="text"

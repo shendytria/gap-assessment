@@ -9,7 +9,6 @@ type RegulationItem = {
   categoryId: number;
   categoryCode: string;
   categoryName: string;
-  regulationType: string;
   docStatus: string;
   legalNumber: string;
   title: string;
@@ -18,6 +17,7 @@ type RegulationItem = {
   readMode: string;
   uploadedByName: string;
   clauseCount: number;
+  maxRevisionNo: number;
   createdAt: string;
 };
 
@@ -54,9 +54,9 @@ export default function RegulationsPage() {
     <main className="page">
       <div className="toolbar">
         <div>
-          <h1 className="page-title">Regulations & Requirements</h1>
+          <h1 className="page-title">Regulations</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
-            Dokumen regulasi, standar bernomor, dan panduan internal (URS 007A-E).
+            Regulatory documents, numbered standards, and internal guidelines.
           </p>
         </div>
         <div>
@@ -101,7 +101,6 @@ export default function RegulationsPage() {
               <th>Category</th>
               <th>Legal Number</th>
               <th>Title</th>
-              <th>Type</th>
               <th>Status</th>
               <th>Clauses</th>
               <th>Read Mode</th>
@@ -120,7 +119,7 @@ export default function RegulationsPage() {
             ) : (items || []).length === 0 ? (
               <tr>
                 <td colSpan={10} style={{ textAlign: "center", padding: "2rem" }} className="muted">
-                  No regulations registered. Click "+ New Regulation Upload" to add one.
+                  No regulations registered.
                 </td>
               </tr>
             ) : (
@@ -132,11 +131,8 @@ export default function RegulationsPage() {
                   <td style={{ fontWeight: 600 }}>{r.legalNumber}</td>
                   <td>{r.title}</td>
                   <td>
-                    <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{r.regulationType}</span>
-                  </td>
-                  <td>
                     <span className={`badge ${r.docStatus === "NEW" ? "badge-ok" : "badge-warn"}`}>
-                      {r.docStatus}
+                      {r.docStatus} (Rev {String(r.maxRevisionNo || 0).padStart(2, "0")})
                     </span>
                   </td>
                   <td>
@@ -152,10 +148,10 @@ export default function RegulationsPage() {
                         target="_blank"
                         rel="noreferrer"
                         className="btn btn-ghost"
-                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", textDecoration: "none" }}
+                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.65rem", textDecoration: "none" }}
                         title="Download / View PDF"
                       >
-                        📄 View PDF
+                        View PDF
                       </a>
                     ) : (
                       <span className="muted" style={{ fontSize: "0.75rem" }}>—</span>

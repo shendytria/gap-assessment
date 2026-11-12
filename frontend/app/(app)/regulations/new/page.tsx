@@ -14,16 +14,27 @@ type ClauseInput = {
   isInfo: boolean;
 };
 
+type ExistingRegulation = {
+  id: number;
+  categoryId: number;
+  legalNumber: string;
+  title: string;
+  maxRevisionNo: number;
+};
+
 export default function NewRegulationPage() {
   const router = useRouter();
 
   const [sites, setSites] = useState<{ id: number; code: string; name: string }[]>([]);
   const [categories, setCategories] = useState<{ id: number; code: string; name: string }[]>([]);
+  const [existingRegs, setExistingRegs] = useState<ExistingRegulation[]>([]);
 
   const [selectedSites, setSelectedSites] = useState<number[]>([]);
   const [categoryId, setCategoryId] = useState<number>(0);
-  const [regulationType, setRegulationType] = useState<string>("CHAPTER_ARTICLE");
+  const [regulationType, setRegulationType] = useState<string>("");
   const [docStatus, setDocStatus] = useState<string>("NEW");
+  const [previousRegulationId, setPreviousRegulationId] = useState<number | null>(null);
+  const [revisionNo, setRevisionNo] = useState<string>("00");
   const [legalNumber, setLegalNumber] = useState<string>("");
   const [title, setTitle] = useState<string>("");
   const [publishedDate, setPublishedDate] = useState<string>("");
@@ -50,18 +61,65 @@ export default function NewRegulationPage() {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [titleMatchInfo, setTitleMatchInfo] = useState<{ currentRev: number; nextRev: number } | null>(null);
+  const autoMatchedByTitleRef = useRef(false);
 
   useEffect(() => {
     Promise.all([
       api<{ id: number; code: string; name: string }[]>("/api/sites"),
       api<{ id: number; code: string; name: string }[]>("/api/categories"),
-    ]).then(([sList, cList]) => {
+      api<ExistingRegulation[]>("/api/regulations"),
+    ]).then(([sList, cList, rList]) => {
       setSites(sList || []);
       setCategories(cList || []);
+      setExistingRegs(rList || []);
       if (sList && sList.length > 0) setSelectedSites([sList[0].id]);
       if (cList && cList.length > 0) setCategoryId(cList[0].id);
     });
   }, []);
+
+  useEffect(() => {
+    const norm = title.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!norm || existingRegs.length === 0) {
+      setTitleMatchInfo(null);
+      if (autoMatchedByTitleRef.current) {
+        autoMatchedByTitleRef.current = false;
+        setDocStatus("NEW");
+        setPreviousRegulationId(null);
+        setRevisionNo("00");
+      }
+      return;
+    }
+
+    const matches = existingRegs.filter(
+      (r) => r.title.trim().toLowerCase().replace(/\s+/g, " ") === norm
+    );
+    if (matches.length > 0) {
+      let best = matches[0];
+      let maxRev = matches[0].maxRevisionNo || 0;
+      for (const m of matches) {
+        const rev = m.maxRevisionNo || 0;
+        if (rev >= maxRev) {
+          maxRev = rev;
+          best = m;
+        }
+      }
+      const nextRev = Math.min(99, maxRev + 1);
+      autoMatchedByTitleRef.current = true;
+      setTitleMatchInfo({ currentRev: maxRev, nextRev });
+      setDocStatus("REVISION");
+      setPreviousRegulationId(best.id);
+      setRevisionNo(String(nextRev).padStart(2, "0"));
+    } else {
+      setTitleMatchInfo(null);
+      if (autoMatchedByTitleRef.current) {
+        autoMatchedByTitleRef.current = false;
+        setDocStatus("NEW");
+        setPreviousRegulationId(null);
+        setRevisionNo("00");
+      }
+    }
+  }, [title, existingRegs]);
 
   const toggleSite = (id: number) => {
     if (selectedSites.includes(id)) {
@@ -75,7 +133,7 @@ export default function NewRegulationPage() {
 
   const handleFileUpload = async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setError("Hanya file dokumen PDF yang didukung (.pdf).");
+      setError("Only PDF document files are supported (.pdf).");
       return;
     }
 
@@ -95,7 +153,7 @@ export default function NewRegulationPage() {
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.message || `Gagal membaca file PDF (Status ${res.status})`);
+        throw new Error(errJson.message || `Failed to read PDF file (Status ${res.status})`);
       }
 
       const data = await res.json();
@@ -103,12 +161,21 @@ export default function NewRegulationPage() {
       setPdfSha256(data.sha256 || "");
 
       if (data.isScanned) {
-        setError(data.message || "File PDF berupa gambar/scan. Silakan gunakan mode input manual.");
+        setError(data.message || "File PDF is a scanned image. Please use the manual input mode.");
         return;
       }
 
       // Auto-fill detected metadata
-      if (data.legalNumber) setLegalNumber(data.legalNumber);
+      if (data.legalNumber) {
+        const revMatch = String(data.legalNumber).match(/^(.+?)\.(\d{2})$/);
+        if (revMatch && /^(WI|SOP|IK|FM|PR)[-\/]/i.test(revMatch[1])) {
+          setLegalNumber(String(data.legalNumber));
+          setRevisionNo(revMatch[2]);
+          if (parseInt(revMatch[2], 10) > 0) setDocStatus("REVISION");
+        } else {
+          setLegalNumber(data.legalNumber);
+        }
+      }
       if (data.title) setTitle(data.title);
       if (data.publishedDate) setPublishedDate(data.publishedDate);
       if (data.regulationType) setRegulationType(data.regulationType);
@@ -117,13 +184,13 @@ export default function NewRegulationPage() {
       if (data.clauses && data.clauses.length > 0) {
         setClauses(data.clauses);
         setExtractSuccess(
-          `Berhasil mengekstrak ${data.clauses.length} klausul dari file "${file.name}". Periksa metadata dan rincian klausul di bawah sebelum disimpan.`
+          `Successfully extracted ${data.clauses.length} clauses from file "${file.name}". Please review the metadata and clause details below before saving.`
         );
       } else {
-        setExtractSuccess(`File "${file.name}" berhasil diunggah.`);
+        setExtractSuccess(`File "${file.name}" uploaded successfully.`);
       }
     } catch (err: any) {
-      setError(err?.message || "Gagal memproses file PDF");
+      setError(err?.message || "Failed to process PDF file");
     } finally {
       setUploading(false);
     }
@@ -169,25 +236,28 @@ export default function NewRegulationPage() {
     setError(null);
 
     if (selectedSites.length === 0) {
-      setError("Pilih minimal satu site tujuan (CKR, PLG, atau PLM).");
+      setError("Please select at least one target site (CKR, PLG, or PLM).");
       return;
     }
     if (!legalNumber.trim() || !title.trim()) {
-      setError("Nomor Regulasi (Legal Number) dan Judul Regulasi wajib diisi.");
+      setError("Legal Number and Regulation Title are required.");
       return;
     }
     const emptyClause = clauses.find((c) => !c.clauseNo.trim() || !c.requirementText.trim());
     if (emptyClause) {
-      setError("Setiap klausul wajib memiliki Nomor Klausul dan Uraian Persyaratan.");
+      setError("Each clause must have a Clause Number and Requirement Text.");
       return;
     }
 
     setSaving(true);
     try {
+      const parsedRev = Math.max(0, Math.min(99, parseInt(revisionNo || "0", 10) || 0));
       const payload = {
         categoryId,
         regulationType,
         docStatus,
+        revisionNo: parsedRev,
+        previousRegulationId: docStatus === "REVISION" ? previousRegulationId : null,
         legalNumber: legalNumber.trim(),
         title: title.trim(),
         publishedDate: publishedDate ? new Date(publishedDate) : null,
@@ -207,7 +277,7 @@ export default function NewRegulationPage() {
       );
 
       if (res.gapIds && res.gapIds.length > 0) {
-        router.push(`/gap-analysis/${res.gapIds[0]}`);
+        router.push(`/gap-analysis/${res.gapIds[0]}?from=/regulations`);
       } else {
         router.push("/master-list");
       }
@@ -224,11 +294,11 @@ export default function NewRegulationPage() {
         <div>
           <h1 className="page-title">Register Regulation</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
-            Daftarkan regulasi baru dan tentukan klausul melalui upload file PDF atau input manual.
+            Register new regulations and define clauses by uploading a PDF file or entering them manually.
           </p>
         </div>
         <Link href="/regulations" className="btn btn-ghost">
-          Cancel
+          Back
         </Link>
       </div>
 
@@ -240,7 +310,7 @@ export default function NewRegulationPage() {
         <div className="card" style={{ marginBottom: "1.25rem" }}>
           <h2 style={{ fontSize: "1.1rem", marginBottom: "0.35rem" }}>Upload Regulation PDF Document (Opsional)</h2>
           <p className="muted small" style={{ margin: "0 0 1rem" }}>
-            Unggah dokumen PDF regulasi untuk membaca nomor, judul, dan memilah klausul secara otomatis, atau langsung lengkapi formulir di bawah jika tidak memiliki file PDF.
+            Upload the PDF document of the regulation to automatically extract its number and title and categorize its articles or simply complete the form below if you do not have a PDF file.
           </p>
 
           <input
@@ -330,10 +400,10 @@ export default function NewRegulationPage() {
               ) : (
                 <div>
                   <div style={{ fontWeight: 600, fontSize: "1rem", color: "var(--text)" }}>
-                    Tarik & letakkan file PDF regulasi di sini, atau <span style={{ color: "var(--primary)", textDecoration: "underline" }}>pilih file</span>
+                    Drag and drop the regulation PDF file here, or <span style={{ color: "var(--primary)", textDecoration: "underline" }}>select a file</span>
                   </div>
                   <div className="muted small" style={{ marginTop: "0.35rem" }}>
-                    Mendukung format PDF resmi BPOM, Permenkes, ISO, CPOB (Maksimal 32 MB)
+                    Supports official BPOM, Permenkes, ISO, CPOB PDF formats (Maximum 32 MB)
                   </div>
                 </div>
               )}
@@ -347,7 +417,7 @@ export default function NewRegulationPage() {
 
           <div className="field" style={{ marginBottom: "1.25rem" }}>
             <label style={{ display: "block", marginBottom: "0.5rem" }}>
-              Target Sites (Dokumen Gap terbit terpisah otomatis per site yang dipilih):
+              Target Sites <span style={{ color: "#c52a2a" }}>*</span> :
             </label>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
               {sites.map((s) => {
@@ -386,7 +456,9 @@ export default function NewRegulationPage() {
 
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(18rem, 1fr))" }}>
             <div className="field">
-              <label htmlFor="category">Regulation Category</label>
+              <label htmlFor="category">
+                Regulation Category <span style={{ color: "#c52a2a" }}>*</span>
+              </label>
               <select
                 id="category"
                 className="filter-select"
@@ -403,52 +475,84 @@ export default function NewRegulationPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="regType">Regulation Type</label>
-              <select
-                id="regType"
-                className="filter-select"
-                style={{ width: "100%" }}
-                value={regulationType}
-                onChange={(e) => setRegulationType(e.target.value)}
-              >
-                <option value="CHAPTER_ARTICLE">Chapter / Article based (Pasal/Bab)</option>
-                <option value="NUMBERED_STANDARD">Numbered Standard (ISO, CPOB 1.1, dll)</option>
-                <option value="INTERNAL_DOC">Internal Corporate Guideline</option>
-              </select>
-            </div>
-
-            <div className="field">
-              <label htmlFor="docStatus">Document Status</label>
+              <label htmlFor="docStatus">
+                Document Status <span style={{ color: "#c52a2a" }}>*</span>
+              </label>
               <select
                 id="docStatus"
                 className="filter-select"
                 style={{ width: "100%" }}
                 value={docStatus}
-                onChange={(e) => setDocStatus(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setDocStatus(next);
+                  if (next === "NEW") {
+                    setPreviousRegulationId(null);
+                    setRevisionNo("00");
+                  } else if (next === "REVISION" && (revisionNo === "00" || !revisionNo)) {
+                    setRevisionNo("01");
+                  }
+                }}
               >
-                <option value="NEW">New (Dokumen Baru - Rev 00)</option>
-                <option value="REVISION">Revision (Revisi dari versi sebelumnya)</option>
+                <option value="NEW">New (New Documents - Rev 00)</option>
+                <option value="REVISION">Revision (Revision from previous version)</option>
               </select>
             </div>
 
             <div className="field">
-              <label htmlFor="legalNumber">Legal Number (lengkap dg tahun)</label>
+              <label htmlFor="publishedDate">
+                Published Date (Date Published/Effective) <span style={{ color: "#c52a2a" }}>*</span>
+              </label>
               <input
-                id="legalNumber"
-                type="text"
-                placeholder="mis. PerBPOM No. 34 Tahun 2021 atau ISO 9001:2015"
-                value={legalNumber}
-                onChange={(e) => setLegalNumber(e.target.value)}
-                required
+                id="publishedDate"
+                type="date"
+                value={publishedDate}
+                onChange={(e) => setPublishedDate(e.target.value)}
               />
             </div>
+          </div>
 
+          {docStatus === "REVISION" && (
+            <div className="field" style={{ marginTop: "0.75rem" }}>
+              <label htmlFor="prevReg">Previous Regulation (Opsional - pilih regulasi lama yang direvisi)</label>
+              <select
+                id="prevReg"
+                className="filter-select"
+                style={{ width: "100%" }}
+                value={previousRegulationId ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  setPreviousRegulationId(val);
+                  if (val) {
+                    const prev = existingRegs.find((r) => r.id === val);
+                    if (prev) {
+                      const nextRev = Math.min(99, (prev.maxRevisionNo || 0) + 1);
+                      setRevisionNo(String(nextRev).padStart(2, "0"));
+                      if (!legalNumber.trim()) setLegalNumber(prev.legalNumber);
+                      if (!title.trim()) setTitle(prev.title);
+                    }
+                  }
+                }}
+              >
+                <option value="">-- Choose previous regulation (or leave blank if it's a new document in the system) --</option>
+                {existingRegs.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.legalNumber} — {r.title} (Rev {String(r.maxRevisionNo || 0).padStart(2, "0")})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(18rem, 1fr))", marginTop: "0.25rem" }}>
             <div className="field">
-              <label htmlFor="title">Regulation Title</label>
+              <label htmlFor="title">
+                Regulation Title <span style={{ color: "#c52a2a" }}>*</span>
+              </label>
               <input
                 id="title"
                 type="text"
-                placeholder="mis. Pedoman Cara Pembuatan Obat yang Baik (CPOB)"
+                placeholder="e.g., Sertifikasi Cara Pembuatan Obat yang Baik dan Cara Distribusi Obat yang Baik"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 required
@@ -456,13 +560,35 @@ export default function NewRegulationPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="publishedDate">Published Date (Tanggal Terbit/Berlaku)</label>
-              <input
-                id="publishedDate"
-                type="date"
-                value={publishedDate}
-                onChange={(e) => setPublishedDate(e.target.value)}
-              />
+              <label htmlFor="legalNumber">
+                Legal Number & Revision Number <span style={{ color: "#c52a2a" }}>*</span>
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <input
+                  id="legalNumber"
+                  type="text"
+                  placeholder="e.g., PERBPOM NOMOR 16 TAHUN 2026 atau WI-QO-QS-1023"
+                  value={legalNumber}
+                  onChange={(e) => setLegalNumber(e.target.value)}
+                  style={{ flex: 1 }}
+                  required
+                />
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem", flexShrink: 0 }}>
+                  <span style={{ fontWeight: 700, color: "var(--muted)" }}>.</span>
+                  <input
+                    id="revisionNo"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={2}
+                    aria-label="Revision Number"
+                    title="Nomor Revisi (00, 01, 04, ...)"
+                    value={revisionNo}
+                    onChange={(e) => setRevisionNo(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                    onBlur={() => setRevisionNo(String(parseInt(revisionNo || "0", 10) || 0).padStart(2, "0"))}
+                    style={{ width: "3.75rem", textAlign: "center", fontWeight: 700 }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -472,10 +598,10 @@ export default function NewRegulationPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
             <div>
               <h2 style={{ fontSize: "1.1rem", marginBottom: "0.25rem" }}>
-                2. Clauses Review & Edit ({clauses.length} klausul)
+                2. Clauses Review & Edit ({clauses.length} clauses)
               </h2>
               <p className="muted small" style={{ margin: "0" }}>
-                Klausul hasil ekstraksi dokumen atau input manual. Klausul bertanda <strong>INFO</strong> dikecualikan dari perhitungan kepatuhan %.
+                Clauses extracted from the document or entered manually. Clauses marked with <strong>INFO</strong> are excluded from the compliance percentage calculation.
               </p>
             </div>
           </div>
@@ -486,9 +612,9 @@ export default function NewRegulationPage() {
                 <tr>
                   <th style={{ width: "45px" }}>No</th>
                   <th style={{ width: "160px" }}>Chapter / Bab</th>
-                  <th style={{ width: "120px" }}>Clause No</th>
+                  <th style={{ width: "120px" }}>Clause No <span style={{ color: "#c52a2a" }}>*</span></th>
                   <th style={{ width: "180px" }}>Clause Title (opsional)</th>
-                  <th>Requirement Text (Persyaratan)</th>
+                  <th>Requirement Text <span style={{ color: "#c52a2a" }}>*</span></th>
                   <th style={{ width: "95px", textAlign: "center" }}>Is INFO?</th>
                   <th style={{ width: "80px", textAlign: "center" }}>Action</th>
                 </tr>
@@ -521,7 +647,7 @@ export default function NewRegulationPage() {
                     <td>
                       <input
                         type="text"
-                        placeholder="Judul klausul"
+                        placeholder="Clause Title"
                         className="filter-input"
                         style={{ width: "100%" }}
                         value={c.clauseTitle}
@@ -531,7 +657,7 @@ export default function NewRegulationPage() {
                     <td>
                       <textarea
                         rows={2}
-                        placeholder="Teks pernyataan persyaratan..."
+                        placeholder="Requirement Text..."
                         className="filter-input"
                         style={{ width: "100%", height: "auto", resize: "vertical", padding: "0.5rem" }}
                         value={c.requirementText}
@@ -554,7 +680,6 @@ export default function NewRegulationPage() {
                             color: c.isInfo ? "var(--primary)" : "var(--muted)",
                           }}
                         >
-                          INFO
                         </span>
                       </label>
                     </td>
@@ -573,7 +698,7 @@ export default function NewRegulationPage() {
                           borderRadius: "6px",
                           cursor: clauses.length <= 1 ? "not-allowed" : "pointer",
                         }}
-                        title="Hapus baris klausul"
+                        title="Delete clause row"
                       >
                         Delete
                       </button>

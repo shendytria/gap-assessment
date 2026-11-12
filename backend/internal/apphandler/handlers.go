@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"gapapp/internal/auth"
 	"gapapp/internal/config"
@@ -64,6 +65,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/gap-documents/{id}/action-plans", authed(h.handleGetGapActionPlans))
 	mux.Handle("PUT /api/gap-documents/{id}/analysis", authed(h.handleSaveGapAnalysis))
 	mux.Handle("POST /api/gap-documents/{id}/submit", authed(h.handleSubmitGapDocument))
+	mux.Handle("POST /api/gap-documents/{id}/return-pic", authed(h.handleReturnGapToPic))
 	mux.Handle("POST /api/gap-documents/{id}/verify", authed(h.handleVerifyGapDocument))
 
 	// Approvals (009A, 009C)
@@ -73,6 +75,15 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Action Plan & Outstanding (009B, WI Lampiran 3)
 	mux.Handle("GET /api/action-plans/outstanding", authed(h.handleListOutstandingActionPlans))
 	mux.Handle("PUT /api/action-plans/{id}", authed(h.handleUpdateActionPlan))
+	mux.Handle("POST /api/action-plans/{id}/verify", authed(h.handleVerifyActionPlan))
+	mux.Handle("POST /api/action-plans/{id}/due-change", authed(h.handleRequestDueDateChange))
+	mux.Handle("POST /api/due-changes/{id}/verify", authed(h.handleVerifyDueDateChange))
+	mux.Handle("GET /api/evidences/{id}/file", authed(h.handleDownloadEvidenceFile))
+
+	// Notifications
+	mux.Handle("GET /api/notifications", authed(h.handleListNotifications))
+	mux.Handle("POST /api/notifications/{id}/read", authed(h.handleMarkNotificationRead))
+	mux.Handle("POST /api/notifications/read-all", authed(h.handleMarkAllNotificationsRead))
 
 	// Dashboard & Audit Trail (004A, 005A)
 	mux.Handle("GET /api/dashboard", authed(h.handleGetDashboard))
@@ -428,7 +439,8 @@ func (h *Handler) handleListGapDocuments(w http.ResponseWriter, r *http.Request)
 	if st := r.URL.Query().Get("status"); st != "" {
 		status = &st
 	}
-	docs, err := h.db.ListGapDocuments(r.Context(), siteID, catID, status)
+	u := auth.UserFrom(r.Context())
+	docs, err := h.db.ListGapDocuments(r.Context(), u, siteID, catID, status)
 	if err != nil {
 		httpx.Fail(w, err)
 		return
@@ -478,7 +490,7 @@ func (h *Handler) handleSaveGapAnalysis(w http.ResponseWriter, r *http.Request) 
 		httpx.Fail(w, err)
 		return
 	}
-	if err := h.db.SaveGapAnalysisDraft(r.Context(), u.ID, gapID, req.Items); err != nil {
+	if err := h.db.SaveGapAnalysisDraft(r.Context(), u, gapID, req.Items); err != nil {
 		slog.Error("save gap analysis", "err", err)
 		httpx.Fail(w, err)
 		return
@@ -493,11 +505,12 @@ func (h *Handler) handleSubmitGapDocument(w http.ResponseWriter, r *http.Request
 		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid gap ID"))
 		return
 	}
-	if err := h.db.SubmitGapToSupervisor(r.Context(), u.ID, gapID); err != nil {
+	nextStatus, err := h.db.SubmitGapDocument(r.Context(), u, gapID)
+	if err != nil {
 		httpx.Fail(w, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true})
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true, "workflowStatus": nextStatus})
 }
 
 func (h *Handler) handleVerifyGapDocument(w http.ResponseWriter, r *http.Request) {
@@ -508,20 +521,44 @@ func (h *Handler) handleVerifyGapDocument(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var req struct {
-		ReturnDraft bool                    `json:"returnDraft"`
-		ReturnNotes string                  `json:"returnNotes"`
-		Clauses     []store.VerifyClauseReq `json:"clauses"`
+		ReturnDraft bool                             `json:"returnDraft"`
+		SendToPIC   bool                             `json:"sendToPic"`
+		ReturnNotes string                           `json:"returnNotes"`
+		Clauses     []store.VerifyClauseReq          `json:"clauses"`
+		Items       []store.UpdateGapAnalysisItemReq `json:"items"`
 	}
 	if err := httpx.Decode(w, r, &req); err != nil {
 		httpx.Fail(w, err)
 		return
 	}
-	if err := h.db.VerifyGapSupervisor(r.Context(), u.ID, gapID, req.ReturnDraft, req.ReturnNotes, req.Clauses); err != nil {
+	nextStatus, err := h.db.VerifyGapSupervisor(r.Context(), u.ID, u.RoleCode, gapID, req.ReturnDraft, req.SendToPIC, req.ReturnNotes, req.Clauses, req.Items)
+	if err != nil {
 		slog.Error("verify gap supervisor", "err", err)
 		httpx.Fail(w, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true})
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true, "workflowStatus": nextStatus})
+}
+
+func (h *Handler) handleReturnGapToPic(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	gapID, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid gap ID"))
+		return
+	}
+	var req struct {
+		ReturnNotes string `json:"returnNotes"`
+	}
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	if err := h.db.ReturnGapToPicByStaff(r.Context(), u, gapID, req.ReturnNotes); err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true, "workflowStatus": "ACTION_PLAN"})
 }
 
 // ------------------------------------------------ Approvals
@@ -559,7 +596,8 @@ func (h *Handler) handleActOnApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sigHash := hex.EncodeToString(sha256.New().Sum([]byte(u.Username + strconv.FormatInt(approvalID, 10))))
+	sum := sha256.Sum256([]byte(u.Username + ":" + strconv.FormatInt(approvalID, 10)))
+	sigHash := hex.EncodeToString(sum[:])
 	if err := h.db.ActOnApproval(r.Context(), u.ID, approvalID, req.Approve, req.Notes, sigHash); err != nil {
 		slog.Error("act on approval", "err", err)
 		httpx.Fail(w, err)
@@ -587,12 +625,88 @@ func (h *Handler) handleListOutstandingActionPlans(w http.ResponseWriter, r *htt
 			siteID = &id
 		}
 	}
-	list, err := h.db.ListOutstandingActionPlans(r.Context(), picUID, deptID, siteID)
+	list, err := h.db.ListOutstandingActionPlans(r.Context(), u, picUID, deptID, siteID)
 	if err != nil {
 		httpx.Fail(w, err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, list)
+}
+
+const maxEvidenceFileBytes = 5 << 20 // 5 MB max
+
+func parseEvidenceUpload(w http.ResponseWriter, r *http.Request, planID int64) (store.UpdateActionPlanReq, string, error) {
+	var req store.UpdateActionPlanReq
+	ct := strings.ToLower(r.Header.Get("Content-Type"))
+
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		r.Body = http.MaxBytesReader(w, r.Body, maxEvidenceFileBytes+(2<<20))
+		if err := r.ParseMultipartForm(maxEvidenceFileBytes); err != nil {
+			return req, "", httpx.NewError(http.StatusBadRequest, "FILE_TOO_LARGE", "Ukuran total unggahan melebihi batas maksimal 5 MB.")
+		}
+		req.ProgressStatus = r.FormValue("progressStatus")
+		req.Notes = r.FormValue("notes")
+		req.EvidenceText = r.FormValue("evidenceText")
+
+		file, header, err := r.FormFile("evidenceFile")
+		if err != nil && err != http.ErrMissingFile {
+			return req, "", httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Gagal membaca file evidence.")
+		}
+		if err == nil {
+			defer file.Close()
+			if header.Size > maxEvidenceFileBytes {
+				return req, "", httpx.NewError(http.StatusBadRequest, "FILE_TOO_LARGE", "Ukuran file evidence maksimal adalah 5 MB.")
+			}
+			limited := io.LimitReader(file, maxEvidenceFileBytes+1)
+			fileBytes, readErr := io.ReadAll(limited)
+			if readErr != nil {
+				return req, "", httpx.NewError(http.StatusInternalServerError, "INTERNAL_ERROR", "Gagal membaca isi file evidence.")
+			}
+			if int64(len(fileBytes)) > maxEvidenceFileBytes {
+				return req, "", httpx.NewError(http.StatusBadRequest, "FILE_TOO_LARGE", "Ukuran file evidence maksimal adalah 5 MB.")
+			}
+
+			ext := strings.ToLower(filepath.Ext(header.Filename))
+			detected := http.DetectContentType(fileBytes)
+			allowedExt := map[string]bool{".pdf": true, ".png": true, ".jpg": true, ".jpeg": true, ".webp": true}
+			allowedMime := map[string]bool{
+				"application/pdf": true,
+				"image/png":       true,
+				"image/jpeg":      true,
+				"image/webp":      true,
+			}
+			if !allowedExt[ext] || !allowedMime[detected] {
+				return req, "", httpx.NewError(http.StatusBadRequest, "INVALID_FILE_TYPE", "File evidence harus berupa PDF atau gambar (PNG, JPG, JPEG, WEBP).")
+			}
+
+			sha := sha256.Sum256(fileBytes)
+			shaHex := hex.EncodeToString(sha[:])
+			uploadDir := filepath.Join("uploads", "evidences", strconv.FormatInt(planID, 10))
+			if err := os.MkdirAll(uploadDir, 0755); err != nil {
+				return req, "", httpx.NewError(http.StatusInternalServerError, "INTERNAL_ERROR", "Gagal menyiapkan direktori penyimpanan evidence.")
+			}
+			safeName := filepath.Base(header.Filename)
+			destPath := filepath.Join(uploadDir, fmt.Sprintf("%s_%s", shaHex[:12], safeName))
+			if err := os.WriteFile(destPath, fileBytes, 0644); err != nil {
+				return req, "", httpx.NewError(http.StatusInternalServerError, "INTERNAL_ERROR", "Gagal menyimpan file evidence.")
+			}
+
+			req.UploadedFile = &store.UploadedEvidenceFile{
+				FileName:   safeName,
+				FilePath:   destPath,
+				MimeType:   detected,
+				FileSize:   int64(len(fileBytes)),
+				FileSha256: shaHex,
+			}
+			return req, destPath, nil
+		}
+		return req, "", nil
+	}
+
+	if err := httpx.Decode(w, r, &req); err != nil {
+		return req, "", err
+	}
+	return req, "", nil
 }
 
 func (h *Handler) handleUpdateActionPlan(w http.ResponseWriter, r *http.Request) {
@@ -602,12 +716,146 @@ func (h *Handler) handleUpdateActionPlan(w http.ResponseWriter, r *http.Request)
 		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid action plan ID"))
 		return
 	}
-	var req store.UpdateActionPlanReq
+	req, savedPath, err := parseEvidenceUpload(w, r, planID)
+	if err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	if err := h.db.UpdateActionPlan(r.Context(), u, planID, req); err != nil {
+		if savedPath != "" {
+			_ = os.Remove(savedPath)
+		}
+		httpx.Fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) handleVerifyActionPlan(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	planID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid action plan ID"))
+		return
+	}
+	var req struct {
+		Approve      bool   `json:"approve"`
+		ClauseStatus string `json:"clauseStatus"`
+		Notes        string `json:"notes"`
+	}
 	if err := httpx.Decode(w, r, &req); err != nil {
 		httpx.Fail(w, err)
 		return
 	}
-	if err := h.db.UpdateActionPlan(r.Context(), u.ID, planID, req); err != nil {
+	res, err := h.db.VerifyActionPlanSupervisor(r.Context(), u, planID, req.Approve, req.ClauseStatus, req.Notes)
+	if err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) handleRequestDueDateChange(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	planID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid action plan ID"))
+		return
+	}
+	var req struct {
+		NewDueDate string `json:"newDueDate"`
+		Reason     string `json:"reason"`
+	}
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	parsedDate, err := time.Parse("2006-01-02", strings.TrimSpace(req.NewDueDate))
+	if err != nil {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "INVALID_DATE", "Format due date baru harus YYYY-MM-DD."))
+		return
+	}
+	if err := h.db.RequestDueDateChange(r.Context(), u, planID, parsedDate, req.Reason); err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) handleVerifyDueDateChange(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	dueChangeID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid due change ID"))
+		return
+	}
+	var req struct {
+		Approve bool   `json:"approve"`
+		Notes   string `json:"notes"`
+	}
+	if err := httpx.Decode(w, r, &req); err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	if err := h.db.VerifyDueDateChange(r.Context(), u, dueChangeID, req.Approve, req.Notes); err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) handleDownloadEvidenceFile(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid evidence ID"))
+		return
+	}
+	ev, err := h.db.GetEvidenceFile(r.Context(), id)
+	if err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	if ev.EvidenceType != "FILE" || ev.FilePath == "" {
+		httpx.Fail(w, httpx.NewError(http.StatusNotFound, "NOT_FOUND", "Evidence bukan berupa file."))
+		return
+	}
+	if ev.MimeType != "" {
+		w.Header().Set("Content-Type", ev.MimeType)
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filepath.Base(ev.FileName)))
+	http.ServeFile(w, r, ev.FilePath)
+}
+
+func (h *Handler) handleListNotifications(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	items, unread, err := h.db.ListNotifications(r.Context(), u.ID, 30)
+	if err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{
+		"items":       items,
+		"unreadCount": unread,
+	})
+}
+
+func (h *Handler) handleMarkNotificationRead(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Invalid notification ID"))
+		return
+	}
+	if err := h.db.MarkNotificationRead(r.Context(), u.ID, id); err != nil {
+		httpx.Fail(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *Handler) handleMarkAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	if err := h.db.MarkAllNotificationsRead(r.Context(), u.ID); err != nil {
 		httpx.Fail(w, err)
 		return
 	}

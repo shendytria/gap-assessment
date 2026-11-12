@@ -3,7 +3,10 @@ package store
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
+
+	"gapapp/internal/httpx"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -39,7 +42,7 @@ func (s *Store) ListApprovals(ctx context.Context, userID int, onlyPending bool)
 		       ro.role_code, ro.role_name, COALESCE(d.department_code,''),
 		       a.assigned_user_id, u_as.full_name, a.result::text,
 		       COALESCE(a.notes,''), COALESCE(u_act.full_name,''), a.acted_at, a.created_at,
-		       (a.result = 'PENDING' AND (a.assigned_user_id = $1 OR dl.delegate_user_id IS NOT NULL)) AS can_act
+		       (a.result = 'PENDING' AND g.workflow_status <> 'ARCHIVED' AND (a.assigned_user_id = $1 OR dl.delegate_user_id IS NOT NULL)) AS can_act
 		FROM approval a
 		JOIN gap_document g ON g.gap_id = a.gap_id
 		JOIN regulation r ON r.regulation_id = g.regulation_id
@@ -53,7 +56,7 @@ func (s *Store) ListApprovals(ctx context.Context, userID int, onlyPending bool)
 		                        AND dl.delegate_user_id = $1
 		                        AND dl.is_active = TRUE
 		                        AND (dl.ended_at IS NULL OR dl.ended_at >= now())
-		WHERE ($2 = FALSE OR (a.result = 'PENDING' AND (a.assigned_user_id = $1 OR dl.delegate_user_id IS NOT NULL)))
+		WHERE ($2 = FALSE OR (a.result = 'PENDING' AND g.workflow_status <> 'ARCHIVED' AND (a.assigned_user_id = $1 OR dl.delegate_user_id IS NOT NULL)))
 		ORDER BY a.created_at DESC`
 	rows, err := s.Pool.Query(ctx, query, userID, onlyPending)
 	if err != nil {
@@ -78,13 +81,22 @@ func (s *Store) ListApprovals(ctx context.Context, userID int, onlyPending bool)
 func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID int64, approve bool, notes string, signatureHash string) error {
 	return s.WithTx(ctx, actorUserID, func(tx pgx.Tx) error {
 		var assignedUID, gapID, cycle, stepSeq int
-		var stage string
+		var stage, wfStatus string
 		err := tx.QueryRow(ctx, `
-			SELECT assigned_user_id, gap_id, cycle_no, step_seq, stage::text
-			FROM approval
-			WHERE approval_id = $1 AND result = 'PENDING'`, approvalID).Scan(&assignedUID, &gapID, &cycle, &stepSeq, &stage)
+			SELECT a.assigned_user_id, a.gap_id, a.cycle_no, a.step_seq, a.stage::text, g.workflow_status::text
+			FROM approval a
+			JOIN gap_document g ON g.gap_id = a.gap_id
+			WHERE a.approval_id = $1 AND a.result = 'PENDING'
+			FOR UPDATE OF a, g`, approvalID).Scan(&assignedUID, &gapID, &cycle, &stepSeq, &stage, &wfStatus)
 		if err != nil {
-			return fmt.Errorf("approval not found or already processed")
+			return httpx.NewError(http.StatusConflict, "ALREADY_PROCESSED", "Approval tidak ditemukan atau sudah diproses.")
+		}
+		if wfStatus == "ARCHIVED" {
+			_, _ = tx.Exec(ctx, `UPDATE approval SET result = 'SKIPPED' WHERE gap_id = $1 AND result = 'PENDING'`, gapID)
+			return httpx.NewError(http.StatusConflict, "DOCUMENT_ARCHIVED", "Dokumen ini sudah diarsipkan (digantikan revisi terbaru) sehingga tidak dapat diproses lagi.")
+		}
+		if (stage == "STAGE1" && wfStatus != "APPROVAL_STAGE1") || (stage == "STAGE2" && wfStatus != "APPROVAL_STAGE2") {
+			return httpx.NewError(http.StatusConflict, "INVALID_STATE", fmt.Sprintf("Dokumen saat ini berstatus %s, bukan tahap %s.", wfStatus, stage))
 		}
 
 		// Check if actor is assigned user or valid delegate
@@ -126,12 +138,61 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 			targetWorkflow := "ACTION_PLAN"
 			if stage == "STAGE2" {
 				targetWorkflow = "EXECUTION"
+				// Reset verified action plans back to IN_PROGRESS so PIC can re-submit updated evidence
+				_, _ = tx.Exec(ctx, `
+					UPDATE action_plan ap
+					SET execution_status = 'IN_PROGRESS',
+					    progress_pct = 50,
+					    close_date = NULL,
+					    verified_by = NULL,
+					    verified_at = NULL
+					FROM gap_analysis ga
+					WHERE ap.gap_analysis_id = ga.gap_analysis_id AND ga.gap_id = $1`, gapID)
+				_, _ = tx.Exec(ctx, `
+					UPDATE evidence ev
+					SET is_superseded = TRUE
+					FROM action_plan ap
+					JOIN gap_analysis ga ON ga.gap_analysis_id = ap.gap_analysis_id
+					WHERE ev.action_plan_id = ap.action_plan_id AND ga.gap_id = $1 AND ev.is_superseded = FALSE`, gapID)
 			}
+			_, _ = tx.Exec(ctx, `
+				UPDATE approval
+				SET result = 'SKIPPED'
+				WHERE gap_id = $1 AND stage = $2::approval_stage AND cycle_no = $3 AND result = 'PENDING' AND approval_id <> $4`,
+				gapID, stage, cycle, approvalID)
+
 			_, err = tx.Exec(ctx, `
 				UPDATE gap_document
-				SET workflow_status = $2::gap_workflow_status, approval_cycle = $3
-				WHERE gap_id = $1`, gapID, targetWorkflow, newCycle)
-			return err
+				SET workflow_status = $2::gap_workflow_status,
+				    approval_cycle = $3,
+				    return_notes = NULLIF($4,''),
+				    returned_at = now(),
+				    returned_by = $5
+				WHERE gap_id = $1`, gapID, targetWorkflow, newCycle, notes, actorUserID)
+			if err != nil {
+				return err
+			}
+
+			var gapNo string
+			var docSiteID int
+			if tx.QueryRow(ctx, `SELECT gap_no, site_id FROM gap_document WHERE gap_id = $1`, gapID).Scan(&gapNo, &docSiteID) == nil {
+				if stage == "STAGE1" {
+					_ = notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, docSiteID,
+						fmt.Sprintf("[%s] Stage 1 Ditolak - Revisi Action Plan", gapNo),
+						fmt.Sprintf("Dokumen %s ditolak pada Approval Stage 1 (%s). Silakan perbaiki Action Plan.", gapNo, notes))
+					_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "APPROVAL_REJECTED", &gapID, nil,
+						fmt.Sprintf("[%s] Stage 1 Ditolak", gapNo),
+						fmt.Sprintf("Dokumen %s ditolak pada Approval Stage 1 (%s) dan dikembalikan ke PIC Area.", gapNo, notes))
+				} else if stage == "STAGE2" {
+					_ = notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, docSiteID,
+						fmt.Sprintf("[%s] Stage 2 Ditolak - Revisi Evidence", gapNo),
+						fmt.Sprintf("Evidence dokumen %s ditolak pada Approval Stage 2 (%s). Silakan perbarui evidence di Execution.", gapNo, notes))
+					_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "APPROVAL_REJECTED", &gapID, nil,
+						fmt.Sprintf("[%s] Stage 2 Ditolak", gapNo),
+						fmt.Sprintf("Approval Stage 2 dokumen %s ditolak (%s) dan dikembalikan ke tahap Execution.", gapNo, notes))
+				}
+			}
+			return nil
 		}
 
 		// If approved, check if all steps for current cycle are completed
@@ -151,27 +212,164 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 					WHERE gap_id = $1 AND is_applicable AND status IN ('50','0')
 				)`, gapID).Scan(&hasBelow100)
 
+			var gapNo string
+			var docSiteID int
+			_ = tx.QueryRow(ctx, `SELECT gap_no, site_id FROM gap_document WHERE gap_id = $1`, gapID).Scan(&gapNo, &docSiteID)
+
 			if stage == "STAGE1" {
 				if hasBelow100 {
 					_, _ = tx.Exec(ctx, `
 						UPDATE gap_document
-						SET workflow_status = 'EXECUTION', stage1_approved_at = now()
+						SET workflow_status = 'EXECUTION', stage1_approved_at = now(),
+						    return_notes = NULL, returned_at = NULL, returned_by = NULL
 						WHERE gap_id = $1`, gapID)
+					if gapNo != "" {
+						_ = notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, docSiteID,
+							fmt.Sprintf("[%s] Approved Stage 1 - Mulai Execution", gapNo),
+							fmt.Sprintf("Dokumen %s telah disetujui Stage 1. Silakan jalankan Action Plan dan unggah evidence di menu Execution.", gapNo))
+						_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "STAGE1_APPROVED", &gapID, nil,
+							fmt.Sprintf("[%s] Approved Stage 1", gapNo),
+							fmt.Sprintf("Dokumen %s telah menyelesaikan Approval Stage 1 dan masuk ke tahap Execution.", gapNo))
+						_ = notifyStaffForSiteTx(ctx, tx, docSiteID, "STAGE1_APPROVED", &gapID,
+							fmt.Sprintf("[%s] Approved Stage 1", gapNo),
+							fmt.Sprintf("Dokumen %s telah menyelesaikan Approval Stage 1.", gapNo))
+					}
 				} else {
 					// All 100% -> Skip Stage 2 and close directly!
 					_, _ = tx.Exec(ctx, `
 						UPDATE gap_document
-						SET workflow_status = 'CLOSED', stage1_approved_at = now(), closed_at = now()
+						SET workflow_status = 'CLOSED', stage1_approved_at = now(), closed_at = now(),
+						    return_notes = NULL, returned_at = NULL, returned_by = NULL
 						WHERE gap_id = $1`, gapID)
 				}
 			} else if stage == "STAGE2" {
 				_, _ = tx.Exec(ctx, `
 					UPDATE gap_document
-					SET workflow_status = 'CLOSED', closed_at = now()
+					SET workflow_status = 'CLOSED', closed_at = now(),
+					    return_notes = NULL, returned_at = NULL, returned_by = NULL
 					WHERE gap_id = $1`, gapID)
 			}
 		}
 
 		return nil
 	})
+}
+
+// createApprovalChainTx creates approval rows for STAGE1 or STAGE2 and queues notifications for assigned approvers.
+func createApprovalChainTx(ctx context.Context, tx pgx.Tx, gapID int, gapNo string, stage string, cycle int, siteID int, reqQA bool) error {
+	// Step 1: Manager Area for all involved departments on the document site
+	deptRows, err := tx.Query(ctx, `
+		SELECT DISTINCT d.department_id, u.user_id, r.role_id
+		FROM gap_analysis ga
+		JOIN department d ON (
+			d.department_id = ga.dept_in_control_id
+			OR EXISTS (SELECT 1 FROM gap_analysis_dept gd WHERE gd.gap_analysis_id = ga.gap_analysis_id AND gd.department_id = d.department_id)
+			OR EXISTS (SELECT 1 FROM gap_analysis_co_dept gco WHERE gco.gap_analysis_id = ga.gap_analysis_id AND gco.department_id = d.department_id)
+			OR ((ga.dept_in_control_all OR ga.co_dept_all) AND d.site_id = $2 AND d.is_active = TRUE)
+		)
+		JOIN users u ON u.department_id = d.department_id AND u.site_id = $2
+		JOIN role r ON r.role_id = u.role_id AND r.role_code = 'MANAGER_AREA'
+		WHERE ga.gap_id = $1 AND ga.is_applicable AND u.is_active = TRUE`, gapID, siteID)
+	if err != nil {
+		return err
+	}
+
+	type mgrTarget struct{ deptID, userID, roleID int }
+	var mgrTargets []mgrTarget
+	for deptRows.Next() {
+		var dID, uID, rID int
+		if err := deptRows.Scan(&dID, &uID, &rID); err != nil {
+			deptRows.Close()
+			return err
+		}
+		mgrTargets = append(mgrTargets, mgrTarget{dID, uID, rID})
+	}
+	if err := deptRows.Err(); err != nil {
+		deptRows.Close()
+		return err
+	}
+	deptRows.Close()
+
+	notifiedUsers := map[int]bool{}
+	for _, mt := range mgrTargets {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, department_id, assigned_user_id, result)
+			VALUES ($1, $2::approval_stage, $3, 1, $4, $5, $6, 'PENDING')
+			ON CONFLICT DO NOTHING`, gapID, stage, cycle, mt.roleID, mt.deptID, mt.userID); err != nil {
+			return err
+		}
+		if !notifiedUsers[mt.userID] {
+			notifiedUsers[mt.userID] = true
+			_ = insertNotificationTx(ctx, tx, "APPROVAL_PENDING", mt.userID, &gapID, nil,
+				fmt.Sprintf("[%s] Menunggu Approval %s", gapNo, stage),
+				fmt.Sprintf("Dokumen %s menunggu tanda tangan/approval Anda pada tahap %s.", gapNo, stage))
+		}
+	}
+
+	// Step 2: Co Gap Manager
+	var coGapMgrID, coGapRoleID int
+	if err := tx.QueryRow(ctx, `
+		SELECT u.user_id, r.role_id FROM users u
+		JOIN role r ON r.role_id = u.role_id
+		WHERE r.role_code = 'CO_GAP_MANAGER' AND u.is_active = TRUE LIMIT 1`).Scan(&coGapMgrID, &coGapRoleID); err == nil {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, assigned_user_id, result)
+			VALUES ($1, $2::approval_stage, $3, 2, $4, $5, 'PENDING')
+			ON CONFLICT DO NOTHING`, gapID, stage, cycle, coGapRoleID, coGapMgrID); err != nil {
+			return err
+		}
+		if !notifiedUsers[coGapMgrID] {
+			notifiedUsers[coGapMgrID] = true
+			_ = insertNotificationTx(ctx, tx, "APPROVAL_PENDING", coGapMgrID, &gapID, nil,
+				fmt.Sprintf("[%s] Menunggu Approval %s", gapNo, stage),
+				fmt.Sprintf("Dokumen %s menunggu persetujuan Co Gap Manager pada tahap %s.", gapNo, stage))
+		}
+	}
+
+	// Step 3: QA Manager (site) - skipped if HSE
+	var qaMgrID, qaRoleID int
+	if err := tx.QueryRow(ctx, `
+		SELECT u.user_id, r.role_id FROM users u
+		JOIN role r ON r.role_id = u.role_id
+		WHERE r.role_code = 'QA_MANAGER' AND u.site_id = $1 AND u.is_active = TRUE LIMIT 1`, siteID).Scan(&qaMgrID, &qaRoleID); err == nil {
+		qaResult := "PENDING"
+		if !reqQA {
+			qaResult = "SKIPPED"
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, assigned_user_id, result)
+			VALUES ($1, $2::approval_stage, $3, 3, $4, $5, $6::approval_result)
+			ON CONFLICT DO NOTHING`, gapID, stage, cycle, qaRoleID, qaMgrID, qaResult); err != nil {
+			return err
+		}
+		if reqQA && !notifiedUsers[qaMgrID] {
+			notifiedUsers[qaMgrID] = true
+			_ = insertNotificationTx(ctx, tx, "APPROVAL_PENDING", qaMgrID, &gapID, nil,
+				fmt.Sprintf("[%s] Menunggu Approval %s", gapNo, stage),
+				fmt.Sprintf("Dokumen %s menunggu persetujuan QA Manager pada tahap %s.", gapNo, stage))
+		}
+	}
+
+	// Step 4: QO Head (only Stage 1 per WI)
+	if stage == "STAGE1" {
+		var qoHeadID, qoRoleID int
+		if err := tx.QueryRow(ctx, `
+			SELECT u.user_id, r.role_id FROM users u
+			JOIN role r ON r.role_id = u.role_id
+			WHERE r.role_code = 'QO_HEAD' AND u.is_active = TRUE LIMIT 1`).Scan(&qoHeadID, &qoRoleID); err == nil {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, assigned_user_id, result)
+				VALUES ($1, $2::approval_stage, $3, 4, $4, $5, 'PENDING')
+				ON CONFLICT DO NOTHING`, gapID, stage, cycle, qoRoleID, qoHeadID); err != nil {
+				return err
+			}
+			if !notifiedUsers[qoHeadID] {
+				notifiedUsers[qoHeadID] = true
+				_ = insertNotificationTx(ctx, tx, "APPROVAL_PENDING", qoHeadID, &gapID, nil,
+					fmt.Sprintf("[%s] Menunggu Approval %s", gapNo, stage),
+					fmt.Sprintf("Dokumen %s menunggu persetujuan akhir QO Head pada tahap %s.", gapNo, stage))
+			}
+		}
+	}
+	return nil
 }

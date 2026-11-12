@@ -97,11 +97,65 @@ func (s *Store) ListMasterList(ctx context.Context, siteID, categoryID, year *in
 			}
 		}
 
+		if out[i].GapID != nil {
+			var hasAll bool
+			_ = s.Pool.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1
+					FROM gap_analysis ga
+					JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+					WHERE ga.gap_id = $1
+					  AND ga.is_applicable = TRUE
+					  AND rc.is_info = FALSE
+					  AND (ga.dept_in_control_all = TRUE OR ga.co_dept_all = TRUE)
+				)`, *out[i].GapID).Scan(&hasAll)
+			if hasAll {
+				out[i].InterestedParties = []string{"ALL"}
+				continue
+			}
+
+			depRows, depErr := s.Pool.Query(ctx, `
+				SELECT DISTINCT d.department_code
+				FROM (
+					SELECT gd.department_id AS dept_id
+					FROM gap_analysis ga
+					JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+					JOIN gap_analysis_dept gd ON gd.gap_analysis_id = ga.gap_analysis_id
+					WHERE ga.gap_id = $1 AND ga.is_applicable = TRUE AND rc.is_info = FALSE
+					UNION
+					SELECT ga.dept_in_control_id AS dept_id
+					FROM gap_analysis ga
+					JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+					WHERE ga.gap_id = $1 AND ga.is_applicable = TRUE AND rc.is_info = FALSE AND ga.dept_in_control_id IS NOT NULL
+					UNION
+					SELECT gco.department_id AS dept_id
+					FROM gap_analysis ga
+					JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+					JOIN gap_analysis_co_dept gco ON gco.gap_analysis_id = ga.gap_analysis_id
+					WHERE ga.gap_id = $1 AND ga.is_applicable = TRUE AND rc.is_info = FALSE
+				) src
+				JOIN department d ON d.department_id = src.dept_id
+				ORDER BY d.department_code ASC`, *out[i].GapID)
+			if depErr == nil {
+				for depRows.Next() {
+					var code string
+					if depRows.Scan(&code) == nil {
+						out[i].InterestedParties = append(out[i].InterestedParties, code)
+					}
+				}
+				depRows.Close()
+			}
+			if len(out[i].InterestedParties) > 0 {
+				continue
+			}
+		}
+
 		depRows, depErr := s.Pool.Query(ctx, `
 			SELECT d.department_code
 			FROM master_list_item_department mlid
 			JOIN department d ON d.department_id = mlid.department_id
-			WHERE mlid.master_list_item_id = $1`, out[i].MasterListItemID)
+			WHERE mlid.master_list_item_id = $1
+			ORDER BY d.department_code ASC`, out[i].MasterListItemID)
 		if depErr == nil {
 			for depRows.Next() {
 				var code string

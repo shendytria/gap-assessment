@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
-import Lampiran2Modal from "@/components/reports/Lampiran2Modal";
 
 type MasterListItem = {
   masterListItemId: number;
@@ -32,17 +30,12 @@ type MasterListItem = {
 };
 
 export default function MasterListPage() {
-  const { me } = useSession();
   const [items, setItems] = useState<MasterListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
   const [catFilter, setCatFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
-  const [showReportModal, setShowReportModal] = useState(false);
-
-  const canDownload =
-    me?.user.role === "CO_GAP_STAFF" || me?.user.role === "CO_GAP_SUPERVISOR";
 
   const [sites, setSites] = useState<{ id: number; code: string; name: string }[]>([]);
   const [categories, setCategories] = useState<{ id: number; code: string; name: string }[]>([]);
@@ -84,22 +77,10 @@ export default function MasterListPage() {
     <main className="page">
       <div className="toolbar">
         <div>
-          <h1 className="page-title">Master List (List Legal Requirements)</h1>
+          <h1 className="page-title">Master List</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
-            Daftar peraturan/standar legalitas dan kepatuhan.
+            List of regulations/standards for legality and compliance.
           </p>
-        </div>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          {canDownload && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => setShowReportModal(true)}
-              title="Download PDF Master List Legal Requirements"
-            >
-              Download PDF
-            </button>
-          )}
         </div>
       </div>
 
@@ -224,7 +205,7 @@ export default function MasterListPage() {
                     </td>
                     <td>
                       {item.gapId ? (
-                        <Link href={`/gap-analysis/${item.gapId}`} style={{ fontWeight: 600 }}>
+                        <Link href={`/gap-analysis/${item.gapId}?from=/master-list`} style={{ fontWeight: 600 }}>
                           {item.gapNo}
                         </Link>
                       ) : (
@@ -247,18 +228,6 @@ export default function MasterListPage() {
           </tbody>
         </table>
       </div>
-
-      {/* Official Master List Report Modal (WI-QO-QS-1023.04 Lampiran 2) */}
-      {showReportModal && (
-        <Lampiran2Modal
-          categoryCode={categories.find((c) => c.id === Number(catFilter))?.code || ""}
-          categoryName={categories.find((c) => c.id === Number(catFilter))?.name || ""}
-          siteCode={sites.find((s) => s.id === Number(siteFilter))?.code || ""}
-          siteName={sites.find((s) => s.id === Number(siteFilter))?.name || ""}
-          items={items}
-          onClose={() => setShowReportModal(false)}
-        />
-      )}
     </main>
   );
 }

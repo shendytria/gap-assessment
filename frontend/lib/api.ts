@@ -22,8 +22,10 @@ export type User = {
   initials: string;
   role: string;
   roleName: string;
+  departmentId: number | null;
   department: string;
   departmentName: string;
+  siteId?: number | null;
   site: string;
   siteName: string;
 };
@@ -48,8 +50,9 @@ type Options = {
 };
 
 export async function api<T>(path: string, opts: Options = {}): Promise<T> {
+  const isFormData = typeof FormData !== "undefined" && opts.body instanceof FormData;
   const headers: Record<string, string> = {};
-  if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+  if (opts.body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
   if (opts.background) headers["X-Idle-Poll"] = "1";
 
   let res: Response;
@@ -59,7 +62,7 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
       credentials: "same-origin",
       cache: "no-store",
       headers,
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      body: opts.body === undefined ? undefined : isFormData ? (opts.body as FormData) : JSON.stringify(opts.body),
     });
   } catch {
     throw { status: 0, code: "NETWORK", message: "Cannot reach the server. Check your connection." } satisfies ApiError;

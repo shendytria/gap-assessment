@@ -1,15 +1,72 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "@/lib/session";
+import { api } from "@/lib/api";
+
+type AppNotification = {
+  notificationId: number;
+  eventType: string;
+  gapId: number | null;
+  actionPlanId: number | null;
+  subject: string;
+  body: string;
+  scheduledAt: string;
+  readAt: string | null;
+};
 
 export default function AppSidebar({ minimal = false }: { minimal?: boolean }) {
   const { me, logout } = useSession();
   const router = useRouter();
   const pathname = usePathname();
+  const [notifs, setNotifs] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifs, setShowNotifs] = useState(false);
+
+  const loadNotifications = () => {
+    api<{ items: AppNotification[]; unreadCount: number }>("/api/notifications", { background: true })
+      .then((res) => {
+        setNotifs(res?.items || []);
+        setUnreadCount(res?.unreadCount || 0);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    if (!me || minimal) return;
+    loadNotifications();
+    const timer = window.setInterval(loadNotifications, 25000);
+    return () => window.clearInterval(timer);
+  }, [me?.user.id, minimal]);
 
   if (!me) return null;
+
+  const handleOpenNotif = async (n: AppNotification) => {
+    if (!n.readAt) {
+      await api(`/api/notifications/${n.notificationId}/read`, { method: "POST" }).catch(() => {});
+      setNotifs((prev) =>
+        prev.map((x) => (x.notificationId === n.notificationId ? { ...x, readAt: new Date().toISOString() } : x))
+      );
+      setUnreadCount((c) => Math.max(0, c - 1));
+    }
+    setShowNotifs(false);
+    if (n.eventType === "APPROVAL_PENDING") {
+      router.push("/approvals");
+    } else if (n.actionPlanId || n.eventType.startsWith("ACTION_PLAN_") || n.eventType.startsWith("DUE_CHANGE_")) {
+      router.push("/execution");
+    } else if (n.gapId) {
+      router.push(`/gap-analysis/${n.gapId}`);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    await api("/api/notifications/read-all", { method: "POST" }).catch(() => {});
+    const nowIso = new Date().toISOString();
+    setNotifs((prev) => prev.map((x) => ({ ...x, readAt: x.readAt || nowIso })));
+    setUnreadCount(0);
+  };
 
   const onLogout = async () => {
     await logout();
@@ -136,7 +193,9 @@ export default function AppSidebar({ minimal = false }: { minimal?: boolean }) {
         <nav style={{ flex: 1, overflowY: "auto" }}>
           <ul className="sidebar-nav">
             {navItems.filter((i) => i.visible).map((item) => {
-              const isActive = pathname === item.href || (item.href !== "/home" && pathname.startsWith(item.href));
+              const isActive =
+                pathname === item.href ||
+                (item.href !== "/home" && item.href !== "/gap-analysis" && pathname.startsWith(item.href));
               return (
                 <li key={item.href}>
                   <Link href={item.href} className={`sidebar-item ${isActive ? "active" : ""}`}>
@@ -151,7 +210,137 @@ export default function AppSidebar({ minimal = false }: { minimal?: boolean }) {
       )}
 
       {/* User Card at bottom of sidebar */}
-      <div className="sidebar-footer">
+      <div className="sidebar-footer" style={{ position: "relative" }}>
+        {!minimal && (
+          <div style={{ marginBottom: "0.65rem" }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                if (!showNotifs) loadNotifications();
+                setShowNotifs((v) => !v);
+              }}
+              style={{
+                width: "100%",
+                justifyContent: "space-between",
+                padding: "0.45rem 0.65rem",
+                fontSize: "0.82rem",
+                border: "1px solid var(--border)",
+                borderRadius: "8px",
+                background: unreadCount > 0 ? "#fefce8" : "var(--surface)",
+              }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", fontWeight: 600 }}>
+                <span aria-hidden="true">🔔</span> Notifications
+              </span>
+              {unreadCount > 0 ? (
+                <span
+                  style={{
+                    background: "#c52a2a",
+                    color: "#fff",
+                    borderRadius: "999px",
+                    padding: "0.08rem 0.45rem",
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                  }}
+                >
+                  {unreadCount}
+                </span>
+              ) : (
+                <span className="muted" style={{ fontSize: "0.75rem" }}>0</span>
+              )}
+            </button>
+
+            {showNotifs && (
+              <div
+                style={{
+                  position: "fixed",
+                  left: "252px",
+                  bottom: "1.25rem",
+                  width: "360px",
+                  maxHeight: "420px",
+                  background: "#fff",
+                  border: "1px solid var(--border)",
+                  borderRadius: "12px",
+                  boxShadow: "0 16px 36px rgba(15, 23, 42, 0.2)",
+                  zIndex: 9999,
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "0.7rem 0.9rem",
+                    borderBottom: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    background: "var(--surface-2)",
+                  }}
+                >
+                  <strong style={{ fontSize: "0.875rem" }}>Notifications ({unreadCount} unread)</strong>
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    {unreadCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleMarkAllRead}
+                        style={{ background: "none", border: "none", color: "var(--brand)", fontSize: "0.75rem", fontWeight: 600, cursor: "pointer" }}
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowNotifs(false)}
+                      style={{ background: "none", border: "none", fontSize: "1rem", cursor: "pointer", lineHeight: 1 }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+                <div style={{ overflowY: "auto", maxHeight: "360px" }}>
+                  {notifs.length === 0 ? (
+                    <div className="muted small" style={{ padding: "1.25rem", textAlign: "center" }}>
+                      Belum ada notifikasi.
+                    </div>
+                  ) : (
+                    notifs.map((n) => (
+                      <button
+                        key={n.notificationId}
+                        type="button"
+                        onClick={() => handleOpenNotif(n)}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "0.7rem 0.9rem",
+                          border: "none",
+                          borderBottom: "1px solid var(--border)",
+                          background: n.readAt ? "#fff" : "#f0fdf4",
+                          cursor: "pointer",
+                          display: "block",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.2rem" }}>
+                          <span style={{ fontWeight: n.readAt ? 600 : 700, fontSize: "0.8rem", color: "#0f172a" }}>
+                            {!n.readAt && <span style={{ color: "#15803d", marginRight: "0.3rem" }}>●</span>}
+                            {n.subject}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "0.76rem", color: "#475569", lineHeight: 1.35, marginBottom: "0.25rem" }}>
+                          {n.body}
+                        </div>
+                        <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
+                          {new Date(n.scheduledAt).toLocaleString()}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="sidebar-user">
           <div className="user-avatar">{userInitials}</div>
           <div className="user-info">

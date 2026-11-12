@@ -244,6 +244,9 @@ CREATE TABLE gap_document (
     previous_gap_id  INT         REFERENCES gap_document(gap_id),
     workflow_status  gap_workflow_status NOT NULL DEFAULT 'DRAFT',
     approval_cycle   SMALLINT    NOT NULL DEFAULT 1,             -- naik setiap reject -> putaran approval baru
+    return_notes     TEXT,
+    returned_at      TIMESTAMPTZ,
+    returned_by      INT         REFERENCES users(user_id),
     effective_date   DATE        NOT NULL DEFAULT CURRENT_DATE,  -- WI kolom 3: tanggal pembuatan Gap Analysis
     submitted_at     TIMESTAMPTZ,
     stage1_approved_at TIMESTAMPTZ,
@@ -336,6 +339,8 @@ CREATE TABLE gap_analysis (
     actual_condition    TEXT,                           -- kondisi aktual / gap
     is_applicable       BOOLEAN NOT NULL DEFAULT TRUE,  -- FALSE => status NA
     dept_in_control_id  INT REFERENCES department(department_id),
+    dept_in_control_all BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE => All Dept In Control
+    co_dept_all         BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE => All Co-Dept In Control
     proposed_status     gap_status,                     -- usulan sistem dari in_procedure + in_practice
     status              gap_status,                     -- status final (ditetapkan Co Gap Supervisor)
     change_type         clause_change_type,             -- hasil perbandingan revisi (007D)
@@ -359,6 +364,13 @@ CREATE INDEX ix_gap_analysis_gap    ON gap_analysis (gap_id);
 CREATE INDEX ix_gap_analysis_dept   ON gap_analysis (dept_in_control_id);
 CREATE INDEX ix_gap_analysis_status ON gap_analysis (gap_id, status);
 
+CREATE TABLE gap_analysis_dept (           -- Dept In Control (> 1 departemen diperbolehkan sesuai WI)
+    gap_analysis_id BIGINT NOT NULL REFERENCES gap_analysis(gap_analysis_id) ON DELETE CASCADE,
+    department_id   INT    NOT NULL REFERENCES department(department_id),
+    PRIMARY KEY (gap_analysis_id, department_id)
+);
+CREATE INDEX ix_dept_in_control_dept ON gap_analysis_dept (department_id);
+
 CREATE TABLE gap_analysis_co_dept (        -- Co-Dept In Control (bisa > 1 departemen; tiap Manager Area wajib approve)
     gap_analysis_id BIGINT NOT NULL REFERENCES gap_analysis(gap_analysis_id) ON DELETE CASCADE,
     department_id   INT    NOT NULL REFERENCES department(department_id),
@@ -369,12 +381,13 @@ CREATE INDEX ix_co_dept_dept ON gap_analysis_co_dept (department_id);
 CREATE TABLE action_plan (
     action_plan_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     gap_analysis_id  BIGINT NOT NULL REFERENCES gap_analysis(gap_analysis_id) ON DELETE CASCADE,
-    plan_text        TEXT   NOT NULL,
-    pic_user_id      INT    NOT NULL REFERENCES users(user_id),
+    plan_text        TEXT,
+    pic_user_id      INT    REFERENCES users(user_id),
     pic_initials     VARCHAR(10),
-    due_date         DATE   NOT NULL,
+    due_date         DATE,
     create_date      DATE   NOT NULL DEFAULT CURRENT_DATE,      -- titik awal lead time (008B)
     progress_pct     SMALLINT NOT NULL DEFAULT 0 CHECK (progress_pct BETWEEN 0 AND 100),
+    execution_status VARCHAR(40) NOT NULL DEFAULT 'IN_PROGRESS',
     progress_notes   TEXT,
     close_date       DATE,                                      -- tanggal penutupan (lead time = close_date - create_date)
     verified_by   INT REFERENCES users(user_id),             -- WI Lampiran 3 kol. 9: verifikasi Co Gap Supervisor
@@ -384,7 +397,7 @@ CREATE TABLE action_plan (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_action_plan_dates CHECK (due_date >= create_date AND (close_date IS NULL OR close_date >= create_date))
 );
-CREATE INDEX ix_action_plan_ga       ON action_plan (gap_analysis_id);
+CREATE UNIQUE INDEX uq_action_plan_ga ON action_plan (gap_analysis_id);
 CREATE INDEX ix_action_plan_pic_open ON action_plan (pic_user_id, due_date) WHERE close_date IS NULL;
 
 CREATE TABLE action_plan_due_change (      -- 002B: "Verify changes to action plan due dates"
@@ -395,17 +408,22 @@ CREATE TABLE action_plan_due_change (      -- 002B: "Verify changes to action pl
     reason         TEXT NOT NULL,
     status         due_change_status NOT NULL DEFAULT 'REQUESTED',
     requested_by   INT NOT NULL REFERENCES users(user_id),
-    requested_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    verified_by    INT REFERENCES users(user_id),
-    verified_at    TIMESTAMPTZ
+    requested_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    verified_by        INT REFERENCES users(user_id),
+    verified_at        TIMESTAMPTZ,
+    verification_notes TEXT
 );
 CREATE INDEX ix_due_change_plan ON action_plan_due_change (action_plan_id);
 
 CREATE TABLE evidence (                    -- 009B / 009C: bukti tindakan korektif
     evidence_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     action_plan_id BIGINT NOT NULL REFERENCES action_plan(action_plan_id) ON DELETE CASCADE,
+    evidence_type  VARCHAR(20) NOT NULL DEFAULT 'FILE', -- 'FILE' atau 'TEXT'
+    evidence_text  TEXT,
     file_name      VARCHAR(255) NOT NULL,
     file_path      TEXT   NOT NULL,
+    mime_type      VARCHAR(100),
+    file_size      BIGINT,
     file_sha256    CHAR(64),
     uploaded_by    INT    NOT NULL REFERENCES users(user_id),
     uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -482,6 +500,7 @@ CREATE TABLE notification (
     retry_count       SMALLINT NOT NULL DEFAULT 0,
     scheduled_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     sent_at           TIMESTAMPTZ,
+    read_at           TIMESTAMPTZ,
     error_message     TEXT
 );
 CREATE INDEX ix_notification_queue ON notification (scheduled_at) WHERE status = 'QUEUED';
