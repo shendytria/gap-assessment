@@ -337,12 +337,12 @@ export default function HomePage() {
                       const actionLabel = isSupVerify
                         ? "Verify Document"
                         : isReturned
-                        ? "Perbaiki Return"
+                        ? "Fix Return"
                         : isStaffReview
-                        ? "Periksa Action Plan"
+                        ? "Check Action Plan"
                         : isActionPlan
-                        ? "Isi Action Plan"
-                        : "Lanjutkan Draft";
+                        ? "Fill Action Plan"
+                        : "Continue Draft";
 
                       return (
                         <div
@@ -487,7 +487,7 @@ export default function HomePage() {
           {(me.user.role === "PIC_AREA" || (data?.userOutstandingPlans?.length || 0) > 0) && (
             <section className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                <h2>My Outstanding Action Plans</h2>
+                <h2>Action Plan Execution</h2>
                 <Link href="/execution" className="btn btn-ghost" style={{ fontSize: "0.8rem", minHeight: "32px", padding: "0 0.6rem" }}>
                   View All
                 </Link>

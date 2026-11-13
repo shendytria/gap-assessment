@@ -21,7 +21,7 @@ type ApprovalTask = {
   departmentCode: string;
   assignedUserId: number;
   assignedUserName: string;
-  result: "PENDING" | "APPROVED" | "REJECTED" | "SKIPPED";
+  result: "PENDING" | "APPROVED" | "REJECTED" | "SKIPPED" | "WAITING";
   notes: string;
   actedByName: string;
   actedAt: string | null;
@@ -164,6 +164,8 @@ export default function ApprovalsPage() {
                     : t.result === "REJECTED"
                     ? "badge-err"
                     : t.result === "SKIPPED"
+                    ? "badge-gray"
+                    : t.result === "WAITING"
                     ? "badge-gray"
                     : "badge-warn";
 

@@ -641,7 +641,7 @@ export default function ExecutionPage() {
               <div className="muted small" style={{ marginTop: "0.25rem" }}>{selectedPlan.planText}</div>
               <div style={{ marginTop: "0.45rem", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
                 <span className="small">
-                  <strong>Target Due Date (Read-Only):</strong> {new Date(selectedPlan.dueDate).toLocaleDateString()}
+                  <strong>Target Due Date :</strong> {new Date(selectedPlan.dueDate).toLocaleDateString()}
                 </span>
                 {selectedPlan.canRequestDueChange && (
                   <button

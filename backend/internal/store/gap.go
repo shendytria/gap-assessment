@@ -610,7 +610,7 @@ func syncMasterListInterestedPartiesTx(ctx context.Context, tx pgx.Tx, gapID int
 	if hasAll {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO master_list_item_department (master_list_item_id, department_id)
-			SELECT $1, d.department_id
+			SELECT $1::int, d.department_id
 			FROM department d
 			WHERE d.site_id = $2 AND d.is_active = TRUE
 			ON CONFLICT DO NOTHING`, mlItemID, siteID)
@@ -622,7 +622,7 @@ func syncMasterListInterestedPartiesTx(ctx context.Context, tx pgx.Tx, gapID int
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO master_list_item_department (master_list_item_id, department_id)
-		SELECT DISTINCT $1, dept_id
+		SELECT DISTINCT $1::int, dept_id
 		FROM (
 			SELECT gd.department_id AS dept_id
 			FROM gap_analysis ga
