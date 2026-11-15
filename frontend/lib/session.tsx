@@ -17,7 +17,7 @@ type Ctx = {
 
 const SessionContext = createContext<Ctx | null>(null);
 
-// URS 001B: waktu sesi dihitung dari aktivitas keyboard atau klik mouse terakhir.
+// Session timeout calculated from last keyboard or mouse click activity.
 const ACTIVITY_EVENTS = ["keydown", "mousedown", "touchstart"] as const;
 const TICK_MS = 15_000;
 const HEARTBEAT_MIN_GAP_MS = 60_000;

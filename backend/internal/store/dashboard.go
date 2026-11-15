@@ -25,12 +25,13 @@ type GroupedMetric struct {
 type OutstandingGapTask struct {
 	GapID           int        `json:"gapId"`
 	GapNo           string     `json:"gapNo"`
+	RegulationID    int        `json:"regulationId"`
 	LegalNumber     string     `json:"legalNumber"`
 	RegulationTitle string     `json:"regulationTitle"`
 	SiteCode        string     `json:"siteCode"`
 	CategoryCode    string     `json:"categoryCode"`
 	WorkflowStatus  string     `json:"workflowStatus"`
-	TaskType        string     `json:"taskType"` // "DRAFT" | "RETURNED_DRAFT" | "SUPERVISOR_VERIFICATION" | "ACTION_PLAN"
+	TaskType        string     `json:"taskType"` // "DRAFT" | "RETURNED_DRAFT" | "SUPERVISOR_VERIFICATION" | "ACTION_PLAN" | "STAFF_REVIEW" | "CLOSED_CYCLE"
 	ReturnNotes     string     `json:"returnNotes"`
 	ReturnedByName  string     `json:"returnedByName"`
 	ReturnedAt      *time.Time `json:"returnedAt"`
@@ -116,7 +117,7 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 		switch actorUser.RoleCode {
 		case "CO_GAP_STAFF":
 			rows, err := s.Pool.Query(ctx, `
-				SELECT g.gap_id, g.gap_no, r.legal_number, r.title, s.site_code, c.category_code,
+				SELECT g.gap_id, g.gap_no, g.regulation_id, r.legal_number, r.title, s.site_code, c.category_code,
 				       g.workflow_status::text, COALESCE(g.return_notes,''), COALESCE(u_ret.full_name,''),
 				       g.returned_at, g.submitted_at, g.updated_at
 				FROM gap_document g
@@ -133,7 +134,7 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 			if err == nil {
 				for rows.Next() {
 					var it OutstandingGapTask
-					if rows.Scan(&it.GapID, &it.GapNo, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
+					if rows.Scan(&it.GapID, &it.GapNo, &it.RegulationID, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
 						&it.WorkflowStatus, &it.ReturnNotes, &it.ReturnedByName,
 						&it.ReturnedAt, &it.SubmittedAt, &it.UpdatedAt) == nil {
 						if it.WorkflowStatus == "STAFF_REVIEW" {
@@ -150,7 +151,7 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 			}
 		case "CO_GAP_SUPERVISOR":
 			rows, err := s.Pool.Query(ctx, `
-				SELECT g.gap_id, g.gap_no, r.legal_number, r.title, s.site_code, c.category_code,
+				SELECT g.gap_id, g.gap_no, g.regulation_id, r.legal_number, r.title, s.site_code, c.category_code,
 				       g.workflow_status::text, COALESCE(g.return_notes,''), COALESCE(u_ret.full_name,''),
 				       g.returned_at, g.submitted_at, g.updated_at
 				FROM gap_document g
@@ -165,7 +166,7 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 			if err == nil {
 				for rows.Next() {
 					var it OutstandingGapTask
-					if rows.Scan(&it.GapID, &it.GapNo, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
+					if rows.Scan(&it.GapID, &it.GapNo, &it.RegulationID, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
 						&it.WorkflowStatus, &it.ReturnNotes, &it.ReturnedByName,
 						&it.ReturnedAt, &it.SubmittedAt, &it.UpdatedAt) == nil {
 						it.TaskType = "SUPERVISOR_VERIFICATION"
@@ -185,7 +186,7 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 			}
 		case "PIC_AREA":
 			rows, err := s.Pool.Query(ctx, `
-				SELECT DISTINCT g.gap_id, g.gap_no, r.legal_number, r.title, s.site_code, c.category_code,
+				SELECT DISTINCT g.gap_id, g.gap_no, g.regulation_id, r.legal_number, r.title, s.site_code, c.category_code,
 				       g.workflow_status::text, COALESCE(g.return_notes,''), COALESCE(u_ret.full_name,''),
 				       g.returned_at, g.submitted_at, g.updated_at
 				FROM gap_document g
@@ -211,7 +212,7 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 			if err == nil {
 				for rows.Next() {
 					var it OutstandingGapTask
-					if rows.Scan(&it.GapID, &it.GapNo, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
+					if rows.Scan(&it.GapID, &it.GapNo, &it.RegulationID, &it.LegalNumber, &it.RegulationTitle, &it.SiteCode, &it.CategoryCode,
 						&it.WorkflowStatus, &it.ReturnNotes, &it.ReturnedByName,
 						&it.ReturnedAt, &it.SubmittedAt, &it.UpdatedAt) == nil {
 						it.TaskType = "ACTION_PLAN"
@@ -263,7 +264,7 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 		LEFT JOIN gap_document g ON g.category_id = c.category_id AND g.workflow_status <> 'ARCHIVED'
 		LEFT JOIN gap_analysis ga ON ga.gap_id = g.gap_id
 		LEFT JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
-		GROUP BY c.category_code, c.category_name
+		GROUP BY c.category_id, c.category_code, c.category_name
 		ORDER BY c.category_id`)
 	if err == nil {
 		defer catRows.Close()

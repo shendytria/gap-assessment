@@ -290,6 +290,14 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 						SET workflow_status = 'CLOSED', stage1_approved_at = now(), closed_at = now(),
 						    return_notes = NULL, returned_at = NULL, returned_by = NULL
 						WHERE gap_id = $1`, gapID)
+					if gapNo != "" {
+						_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "GAP_CLOSED", &gapID, nil,
+							fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo),
+							fmt.Sprintf("Dokumen %s telah selesai (CLOSED). Periksa apakah ada regulasi baru atau revisi yang perlu didaftarkan.", gapNo))
+						_ = notifyStaffForSiteTx(ctx, tx, docSiteID, "GAP_CLOSED", &gapID,
+							fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo),
+							fmt.Sprintf("Dokumen %s telah selesai (CLOSED).", gapNo))
+					}
 				}
 			} else if stage == "STAGE2" {
 				_, _ = tx.Exec(ctx, `
@@ -297,6 +305,14 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 					SET workflow_status = 'CLOSED', closed_at = now(),
 					    return_notes = NULL, returned_at = NULL, returned_by = NULL
 					WHERE gap_id = $1`, gapID)
+				if gapNo != "" {
+					_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "GAP_CLOSED", &gapID, nil,
+						fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo),
+						fmt.Sprintf("Dokumen %s telah selesai (CLOSED). Periksa apakah ada regulasi baru atau revisi yang perlu didaftarkan.", gapNo))
+					_ = notifyStaffForSiteTx(ctx, tx, docSiteID, "GAP_CLOSED", &gapID,
+						fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo),
+						fmt.Sprintf("Dokumen %s telah selesai (CLOSED).", gapNo))
+				}
 			}
 		} else {
 			// Notify all newly eligible pending approvers in the next step (e.g. Co Gap Manager or all parallel managers)

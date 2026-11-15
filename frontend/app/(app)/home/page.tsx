@@ -30,6 +30,7 @@ type GroupedMetric = {
 type OutstandingGapTask = {
   gapId: number;
   gapNo: string;
+  regulationId?: number;
   legalNumber: string;
   regulationTitle: string;
   siteCode: string;
@@ -40,7 +41,8 @@ type OutstandingGapTask = {
     | "RETURNED_DRAFT"
     | "SUPERVISOR_VERIFICATION"
     | "ACTION_PLAN"
-    | "STAFF_REVIEW";
+    | "STAFF_REVIEW"
+    | "CLOSED_CYCLE";
   returnNotes: string;
   returnedByName: string;
   returnedAt: string | null;
@@ -141,8 +143,8 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="stat-grid">
+      {/* KPI Cards (3 on top, 3 on bottom) */}
+      <div className="stat-grid-dashboard">
         <div className="stat-card">
           <div className="stat-label">Comply (100%)</div>
           <div className="stat-value" style={{ color: "var(--ok)" }}>
@@ -246,34 +248,6 @@ export default function HomePage() {
               )}
             </div>
           </section>
-
-          <section className="card">
-            <h2>Compliance by Category</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(10rem, 1fr))", gap: "1rem" }}>
-              {data?.byCategory?.map((c) => (
-                <div
-                  key={c.key}
-                  style={{
-                    padding: "0.85rem",
-                    border: "1px solid var(--border)",
-                    borderRadius: "10px",
-                    background: "var(--surface-2)",
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{c.key}</div>
-                  <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.4rem" }}>
-                    {c.label}
-                  </div>
-                  <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--ok)" }}>
-                    {c.pct100.toFixed(1)}%
-                  </div>
-                  <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
-                    {c.count100} / {c.totalApplicable} clauses
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
         </div>
 
         {/* My Tasks: My Outstanding (Draft / Returned / Verification / Execution) & Pending Approvals */}
@@ -375,7 +349,7 @@ export default function HomePage() {
                                 fontSize: "0.8rem",
                               }}
                             >
-                              <strong>Catatan Return{d.returnedByName ? ` (${d.returnedByName})` : ""}:</strong>{" "}
+                              <strong>Revision Notes{d.returnedByName ? ` (${d.returnedByName})` : ""}:</strong>{" "}
                               {d.returnNotes}
                             </div>
                           )}

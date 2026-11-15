@@ -1,30 +1,141 @@
-export async function exportToPdf(elementId: string, filename: string) {
-  const element = document.getElementById(elementId);
-  if (!element) {
-    alert("Elemen dokumen cetak tidak ditemukan.");
-    return;
-  }
+export function exportToPdf(elementId: string, filename: string): Promise<void> {
+  return new Promise((resolve) => {
+    const element = document.getElementById(elementId);
+    if (!element) {
+      alert("Print document element not found.");
+      resolve();
+      return;
+    }
 
-  try {
-    // Dynamic import to prevent Next.js SSR error
-    const html2pdfModule = await import("html2pdf.js");
-    const html2pdf = html2pdfModule.default || html2pdfModule;
+    const cleanFilename = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
 
-    const opt = {
-      margin: [6, 6, 6, 6],
-      filename: filename.endsWith(".pdf") ? filename : `${filename}.pdf`,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-      jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
-      pagebreak: { mode: ["avoid-all", "css", "legacy"] },
-    };
+    try {
+      let iframe = document.getElementById("pdf-print-iframe") as HTMLIFrameElement;
+      if (iframe) {
+        iframe.remove();
+      }
+      iframe = document.createElement("iframe");
+      iframe.id = "pdf-print-iframe";
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
 
-    // @ts-ignore
-    await html2pdf().set(opt).from(element).save();
-  } catch (err) {
-    console.warn("Direct html2pdf failed, falling back to print dialog:", err);
-    window.print();
-  }
+      const frameDoc = iframe.contentWindow?.document;
+      if (!frameDoc) {
+        window.print();
+        resolve();
+        return;
+      }
+
+      frameDoc.open();
+      frameDoc.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>${cleanFilename}</title>
+            <style>
+              @page {
+                size: A4 landscape;
+                margin: 5mm 5mm;
+              }
+              * {
+                box-sizing: border-box;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+              }
+              html, body {
+                margin: 0;
+                padding: 0;
+                background: #ffffff !important;
+                color: #000000 !important;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 5.5pt;
+              }
+              #${elementId} {
+                width: 100% !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                background: #ffffff !important;
+              }
+              table {
+                border-collapse: collapse !important;
+                width: 100% !important;
+                page-break-inside: auto;
+              }
+              thead {
+                display: table-header-group !important;
+              }
+              tr {
+                page-break-inside: avoid !important;
+                page-break-after: auto;
+              }
+              th, td {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+            </style>
+          </head>
+          <body>
+            ${element.outerHTML}
+          </body>
+        </html>
+      `);
+      frameDoc.close();
+
+      const images = Array.from(frameDoc.images);
+      let printed = false;
+      const triggerPrint = () => {
+        if (printed) return;
+        printed = true;
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch (e) {
+            console.error("Iframe print error:", e);
+            window.print();
+          } finally {
+            resolve();
+          }
+        }, 150);
+      };
+
+      if (images.length === 0) {
+        setTimeout(triggerPrint, 250);
+      } else {
+        let pending = images.length;
+        const onOneDone = () => {
+          pending--;
+          if (pending <= 0) {
+            triggerPrint();
+          }
+        };
+
+        images.forEach((img) => {
+          if (img.complete && img.naturalWidth > 0) {
+            onOneDone();
+          } else {
+            img.onload = onOneDone;
+            img.onerror = onOneDone;
+          }
+        });
+
+        // Safety timeout so user never waits more than 1.8s
+        setTimeout(triggerPrint, 1800);
+      }
+    } catch (err) {
+      console.warn("PDF export fallback to window.print:", err);
+      window.print();
+      resolve();
+    }
+  });
 }
 
 export function printDocument() {

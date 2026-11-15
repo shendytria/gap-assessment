@@ -17,7 +17,7 @@ export default function ChangePasswordPage() {
   const [busy, setBusy] = useState(false);
 
   const minLen = me?.passwordMinLength ?? 8;
-  // URS 001A: minimal 8 karakter, kombinasi huruf kapital dan angka
+  // Minimum length, uppercase and digit requirements
   const rules = useMemo(
     () => [
       { ok: next.length >= minLen, label: `At least ${minLen} characters` },
@@ -69,7 +69,18 @@ export default function ChangePasswordPage() {
         <ul className="rules" id="pw-rules" aria-label="Password requirements">
           {rules.map((r) => (
             <li key={r.label} className={r.ok ? "ok" : ""}>
-              <span aria-hidden="true">{r.ok ? "✓" : "○"}</span> {r.label}
+              <span aria-hidden="true" style={{ display: "inline-flex", alignItems: "center", marginRight: "0.4rem", verticalAlign: "middle" }}>
+                {r.ok ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.6">
+                    <circle cx="12" cy="12" r="9" />
+                  </svg>
+                )}
+              </span>
+              {r.label}
               <span className="sr-only">{r.ok ? " (met)" : " (not met)"}</span>
             </li>
           ))}

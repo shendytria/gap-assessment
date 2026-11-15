@@ -86,7 +86,7 @@ export default function SettingsPage() {
     isActive: true,
   });
 
-  // Department modal (URS 011B)
+  // Department modal state
   const [showDeptModal, setShowDeptModal] = useState(false);
   const [editingDept, setEditingDept] = useState<Department | null>(null);
   const [deptForm, setDeptForm] = useState({
@@ -284,7 +284,7 @@ export default function SettingsPage() {
     }
   };
 
-  // Department actions (URS 011B)
+  // Department actions
   const openNewDeptModal = () => {
     setEditingDept(null);
     setDeptForm({
@@ -316,8 +316,8 @@ export default function SettingsPage() {
 
     const isEdit = !!editingDept;
     const confirmMsg = isEdit
-      ? `Konfirmasi simpan perubahan data departemen "${deptForm.name}"?`
-      : `Konfirmasi penambahan departemen baru "${deptForm.name}" (${deptForm.code.toUpperCase()})?`;
+      ? `Save changes to department "${deptForm.name}"?`
+      : `Add new department "${deptForm.name}" (${deptForm.code.toUpperCase()})?`;
 
     if (!confirm(confirmMsg)) {
       setSubmitting(false);
@@ -345,8 +345,8 @@ export default function SettingsPage() {
   };
 
   const handleToggleDeptStatus = async (d: Department) => {
-    const action = d.isActive ? "MENONAKTIFKAN (deactivate)" : "MENGAKTIFKAN KEMBALI";
-    const confirmMsg = `Konfirmasi tindakan: Apakah Anda yakin ingin ${action} departemen "${d.name}" (${d.code}) pada site ${d.siteCode}?\n\nCatatan URS 011B: Departemen hanya dapat dinonaktifkan dan tidak dapat dihapus permanen agar integritas data Gap Analysis tetap terjaga.`;
+    const action = d.isActive ? "deactivate" : "reactivate";
+    const confirmMsg = `Are you sure you want to ${action} the department "${d.name}" (${d.code}) on site ${d.siteCode}?`;
 
     if (!confirm(confirmMsg)) return;
 
@@ -363,7 +363,7 @@ export default function SettingsPage() {
       });
       loadData();
     } catch (err: any) {
-      alert(err?.message || "Gagal mengubah status departemen");
+      alert(err?.message || "Failed to update department status");
     }
   };
 
@@ -371,15 +371,15 @@ export default function SettingsPage() {
     <main className="page">
       <div className="toolbar">
         <div>
-          <h1 className="page-title">System Settings (Master Data & Delegations)</h1>
+          <h1 className="page-title">Settings</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
-            Kelola data Master Users, Departemen, dan Delegasi Wewenang Approval (URS 006A, 011A-D).
+            Manage users, departments, and approval delegations.
           </p>
         </div>
         <div>
           {isSupervisor && tab === "users" && (
             <button type="button" className="btn btn-primary" onClick={openNewUserModal}>
-              + Request New User
+              + Add User
             </button>
           )}
           {isSupervisor && tab === "departments" && (
@@ -408,21 +408,21 @@ export default function SettingsPage() {
           className={`tab ${tab === "users" ? "active" : ""}`}
           onClick={() => setTab("users")}
         >
-          Master List Users (006A / 011A)
+          Users
         </button>
         <button
           type="button"
           className={`tab ${tab === "departments" ? "active" : ""}`}
           onClick={() => setTab("departments")}
         >
-          Departments (011B)
+          Departments
         </button>
         <button
           type="button"
           className={`tab ${tab === "delegations" ? "active" : ""}`}
           onClick={() => setTab("delegations")}
         >
-          Delegation Approval (011D)
+          Approval Delegation
         </button>
       </div>
 
@@ -529,7 +529,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Departments Tab (URS 011B) */}
+      {/* Departments Tab */}
       {tab === "departments" && (
         <div className="table-wrap">
           <table className="table">
@@ -581,7 +581,7 @@ export default function SettingsPage() {
                             }}
                             onClick={() => openEditDeptModal(d)}
                           >
-                            ✏️ Edit
+                            Edit
                           </button>
                           <button
                             type="button"
@@ -596,9 +596,9 @@ export default function SettingsPage() {
                               fontWeight: 600,
                             }}
                             onClick={() => handleToggleDeptStatus(d)}
-                            title={d.isActive ? "Deactivate Department (URS 011B)" : "Activate Department"}
+                            title={d.isActive ? "Deactivate Department" : "Activate Department"}
                           >
-                            {d.isActive ? "⛔ Deactivate" : "✓ Activate"}
+                            {d.isActive ? "Deactivate" : "Activate"}
                           </button>
                         </div>
                       ) : (
@@ -702,7 +702,7 @@ export default function SettingsPage() {
                     required
                   />
                   <p className="muted small" style={{ margin: "0.2rem 0 0" }}>
-                    Akun baru otomatis diberikan password default <code>KCH12345</code> dan wajib ganti password saat login pertama.
+                    New accounts are assigned default password <code>KCH12345</code> and must change it on first login.
                   </p>
                 </div>
               )}
@@ -731,7 +731,7 @@ export default function SettingsPage() {
 
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", margin: 0 }}>
                 <div className="field">
-                  <label htmlFor="u_title">Job Title (Jabatan)</label>
+                  <label htmlFor="u_title">Job Title</label>
                   <input
                     id="u_title"
                     type="text"
@@ -740,11 +740,11 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="u_initials">Initials (Inisial PIC)</label>
+                  <label htmlFor="u_initials">Initials</label>
                   <input
                     id="u_initials"
                     type="text"
-                    placeholder="mis. JD"
+                    placeholder="e.g. JD"
                     value={userForm.initials}
                     onChange={(e) => setUserForm({ ...userForm, initials: e.target.value })}
                   />
@@ -795,7 +795,7 @@ export default function SettingsPage() {
                       onChange={(e) => setUserForm({ ...userForm, isActive: e.target.checked })}
                       style={{ width: "18px", height: "18px", margin: 0, accentColor: "var(--primary)", cursor: "pointer" }}
                     />
-                    <span style={{ fontWeight: 600 }}>Active Account (Nonaktifkan untuk deactive)</span>
+                    <span style={{ fontWeight: 600 }}>Active Account</span>
                   </label>
                 </div>
               )}
@@ -818,7 +818,7 @@ export default function SettingsPage() {
         <div className="modal-overlay">
           <div className="modal-card">
             <div className="modal-header">
-              <h2 className="modal-title">Delegation of Authority (URS 011D)</h2>
+              <h2 className="modal-title">Delegation of Authority</h2>
               <button type="button" className="modal-close" onClick={() => setShowDelegationModal(false)}>
                 ×
               </button>
@@ -948,7 +948,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Department Modal (URS 011B) */}
+      {/* Department Modal */}
       {showDeptModal && (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -984,12 +984,12 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="dept_code">Department Code (misal: QC, QA, PR, WH) <span style={{ color: "#c52a2a" }}>*</span></label>
+                <label htmlFor="dept_code">Department Code (e.g. QC, QA, PR, WH) <span style={{ color: "#c52a2a" }}>*</span></label>
                 <input
                   id="dept_code"
                   type="text"
                   maxLength={10}
-                  placeholder="Kode 2-4 huruf kapital"
+                  placeholder="e.g. QC"
                   value={deptForm.code}
                   onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value.toUpperCase() })}
                   disabled={!!editingDept}
@@ -998,11 +998,11 @@ export default function SettingsPage() {
               </div>
 
               <div className="field">
-                <label htmlFor="dept_name">Department Name (Nama Lengkap Departemen) <span style={{ color: "#c52a2a" }}>*</span></label>
+                <label htmlFor="dept_name">Department Name <span style={{ color: "#c52a2a" }}>*</span></label>
                 <input
                   id="dept_name"
                   type="text"
-                  placeholder="misal: Quality Control"
+                  placeholder="e.g. Quality Control"
                   value={deptForm.name}
                   onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })}
                   required
@@ -1018,10 +1018,10 @@ export default function SettingsPage() {
                       onChange={(e) => setDeptForm({ ...deptForm, isActive: e.target.checked })}
                       style={{ width: "18px", height: "18px", margin: 0, accentColor: "var(--primary)", cursor: "pointer" }}
                     />
-                    <span style={{ fontWeight: 600 }}>Active Status (Centang untuk aktif)</span>
+                    <span style={{ fontWeight: 600 }}>Active Status</span>
                   </label>
                   <p className="muted small" style={{ margin: "0.25rem 0 0" }}>
-                    Sesuai URS 011B: Departemen hanya dapat dinonaktifkan (deactivate) agar data riwayat Gap Analysis tetap terjaga.
+                    Deactivating a department preserves historical audit and assessment records.
                   </p>
                 </div>
               )}

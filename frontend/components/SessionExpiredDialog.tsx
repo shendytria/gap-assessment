@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-// URS 001B: notifikasi muncul dan pengguna diminta login kembali.
+// Session expiration modal asking user to log in again.
 export default function SessionExpiredDialog({ minutes }: { minutes: number }) {
   const router = useRouter();
   const btn = useRef<HTMLButtonElement>(null);

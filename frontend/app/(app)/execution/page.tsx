@@ -388,7 +388,19 @@ export default function ExecutionPage() {
             lineHeight: 1.4,
           }}
         >
-          <span style={{ fontWeight: 700, flexShrink: 0 }}>{toast.type === "ok" ? "✓" : "!"}</span>
+          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+            {toast.type === "ok" ? (
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            )}
+          </span>
           <span style={{ flex: 1 }}>{toast.text}</span>
           <button
             type="button"
@@ -405,7 +417,7 @@ export default function ExecutionPage() {
         <div>
           <h1 className="page-title">Outstanding & Execution</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
-            Implementation of the action plan (specifically for the 'Approved Stage 1' document), uploading of evidence of compliance, and verification by the Supervisor for progression to Stage 2.
+            Implement the approved action plan and upload evidence for verification.
           </p>
         </div>
       </div>
@@ -468,7 +480,7 @@ export default function ExecutionPage() {
             ) : (plans || []).length === 0 ? (
               <tr>
                 <td colSpan={12} style={{ textAlign: "center", padding: "2rem" }} className="muted">
-                  Tidak ada action plan yang berstatus Approved Stage 1 / Execution.
+                  No action plans currently in Execution stage.
                 </td>
               </tr>
             ) : (
@@ -507,7 +519,7 @@ export default function ExecutionPage() {
                       <div>{p.planText}</div>
                       {p.notes && (
                         <div className="muted" style={{ fontSize: "0.75rem", marginTop: "0.2rem" }}>
-                          Catatan: {p.notes}
+                          Note: {p.notes}
                         </div>
                       )}
                     </td>
@@ -531,9 +543,9 @@ export default function ExecutionPage() {
                       </span>
                       {p.closeDate && (
                         <div style={{ fontSize: "0.74rem", color: "var(--muted)", marginTop: "0.25rem" }}>
-                          Close: {new Date(p.closeDate).toLocaleDateString()}
+                          Closed: {new Date(p.closeDate).toLocaleDateString()}
                           {p.leadTimeDays !== null && (
-                            <div>Lead time: <strong>{p.leadTimeDays} hari</strong></div>
+                            <div>Lead time: <strong>{p.leadTimeDays} days</strong></div>
                           )}
                         </div>
                       )}
@@ -549,9 +561,12 @@ export default function ExecutionPage() {
                                 href={`/api/evidences/${ev.evidenceId}/file`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                style={{ fontSize: "0.76rem", fontWeight: 600 }}
+                                style={{ fontSize: "0.76rem", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
                               >
-                                📎 {ev.fileName}
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                                </svg>
+                                {ev.fileName}
                               </a>
                             ) : (
                               <span
@@ -560,7 +575,7 @@ export default function ExecutionPage() {
                                 title={ev.evidenceText}
                                 style={{ whiteSpace: "normal", textAlign: "left", fontWeight: 500 }}
                               >
-                                📝 {ev.evidenceText.length > 35 ? `${ev.evidenceText.slice(0, 35)}…` : ev.evidenceText}
+                                {ev.evidenceText.length > 35 ? `${ev.evidenceText.slice(0, 35)}…` : ev.evidenceText}
                               </span>
                             )
                           )}
@@ -582,8 +597,8 @@ export default function ExecutionPage() {
                           </button>
                         )}
                         {!p.canUpdate && me?.user.role === "PIC_AREA" && p.executionStatus === "IN_PROGRESS" && (
-                          <span className="muted small" title="PIC only can update clauses of their own department">
-                            Dept lain
+                          <span className="muted small" title="PIC can only update clauses of their own department">
+                            Other Dept
                           </span>
                         )}
                         {p.canVerify && (
@@ -670,7 +685,7 @@ export default function ExecutionPage() {
                 </div>
                 <div className="field" style={{ marginBottom: "0.6rem" }}>
                   <label htmlFor="newDueDate">
-                    Due Date Baru <span style={{ color: "#c52a2a" }}>*</span>
+                    New Due Date <span style={{ color: "#c52a2a" }}>*</span>
                   </label>
                   <input
                     id="newDueDate"
@@ -682,14 +697,14 @@ export default function ExecutionPage() {
                 </div>
                 <div className="field" style={{ marginBottom: "0.65rem" }}>
                   <label htmlFor="dueChangeReason">
-                    Alasan Perubahan <span style={{ color: "#c52a2a" }}>*</span>
+                    Reason for Change <span style={{ color: "#c52a2a" }}>*</span>
                   </label>
                   <textarea
                     id="dueChangeReason"
                     rows={2}
                     className="filter-input"
                     style={{ width: "100%", height: "auto" }}
-                    placeholder="Explain the reason for the due date extension / change..."
+                    placeholder="Explain the reason for the due date extension or adjustment..."
                     value={dueChangeReason}
                     onChange={(e) => setDueChangeReason(e.target.value)}
                   />
@@ -701,7 +716,7 @@ export default function ExecutionPage() {
                   disabled={submittingDueReq}
                   onClick={handleRequestDueDateChange}
                 >
-                  {submittingDueReq ? "Submitting..." : "Submit Due Date Change Request"}
+                  {submittingDueReq ? "Submitting..." : "Submit Due Date Request"}
                 </button>
               </div>
             )}
@@ -721,11 +736,6 @@ export default function ExecutionPage() {
                   <option value="IN_PROGRESS">In Progress</option>
                   <option value="COMPLETED">Completed – Submit for Verification</option>
                 </select>
-                {progressStatus === "COMPLETED" && (
-                  <div className="muted small" style={{ marginTop: "0.25rem" }}>
-                    Close date will be recorded automatically today for lead time calculation, and a notification will be sent to the Co Gap Supervisor for verification at Stage 2.
-                  </div>
-                )}
               </div>
 
               <div className="field">
@@ -743,16 +753,19 @@ export default function ExecutionPage() {
 
               {selectedPlan.evidences && selectedPlan.evidences.length > 0 && (
                 <div className="field">
-                  <label>Evidence Tersimpan Saat Ini</label>
+                  <label>Current Evidence Records</label>
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", padding: "0.5rem", background: "var(--surface-2)", borderRadius: "6px" }}>
                     {selectedPlan.evidences.map((ev) => (
                       <div key={ev.evidenceId} style={{ fontSize: "0.8rem" }}>
                         {ev.evidenceType === "FILE" ? (
-                          <a href={`/api/evidences/${ev.evidenceId}/file`} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600 }}>
-                            📎 {ev.fileName} {ev.fileSize ? `(${formatBytes(ev.fileSize)})` : ""}
+                          <a href={`/api/evidences/${ev.evidenceId}/file`} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                            </svg>
+                            {ev.fileName} {ev.fileSize ? `(${formatBytes(ev.fileSize)})` : ""}
                           </a>
                         ) : (
-                          <span>📝 {ev.evidenceText}</span>
+                          <span>{ev.evidenceText}</span>
                         )}
                       </div>
                     ))}
@@ -822,7 +835,7 @@ export default function ExecutionPage() {
         <div className="modal-overlay">
           <div className="modal-card" style={{ maxWidth: "600px" }}>
             <div className="modal-header">
-              <h2 className="modal-title">Verifikasi Action Plan & Evidence (Supervisor)</h2>
+              <h2 className="modal-title">Verify Action Plan & Evidence</h2>
               <button type="button" className="modal-close" onClick={() => setVerifyPlan(null)}>
                 ×
               </button>
@@ -840,14 +853,14 @@ export default function ExecutionPage() {
                 {verifyPlan.closeDate && (
                   <>
                     {" "}
-                    | Close Date: <strong>{new Date(verifyPlan.closeDate).toLocaleDateString()}</strong>{" "}
-                    {verifyPlan.leadTimeDays !== null && `(Lead Time: ${verifyPlan.leadTimeDays} hari)`}
+                    | Closed: <strong>{new Date(verifyPlan.closeDate).toLocaleDateString()}</strong>{" "}
+                    {verifyPlan.leadTimeDays !== null && `(Lead Time: ${verifyPlan.leadTimeDays} days)`}
                   </>
                 )}
               </div>
               {verifyPlan.notes && (
                 <div style={{ marginTop: "0.4rem" }}>
-                  <strong>Progress / Fulfillment Notes:</strong> {verifyPlan.notes}
+                  <strong>Progress Notes:</strong> {verifyPlan.notes}
                 </div>
               )}
               <div style={{ marginTop: "0.45rem" }}>
@@ -857,11 +870,14 @@ export default function ExecutionPage() {
                     {verifyPlan.evidences.map((ev) => (
                       <li key={ev.evidenceId} style={{ marginBottom: "0.2rem" }}>
                         {ev.evidenceType === "FILE" ? (
-                          <a href={`/api/evidences/${ev.evidenceId}/file`} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600 }}>
-                            📎 {ev.fileName} ({formatBytes(ev.fileSize)})
+                          <a href={`/api/evidences/${ev.evidenceId}/file`} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                            </svg>
+                            {ev.fileName} ({formatBytes(ev.fileSize)})
                           </a>
                         ) : (
-                          <span>📝 {ev.evidenceText}</span>
+                          <span>{ev.evidenceText}</span>
                         )}
                       </li>
                     ))}
@@ -884,15 +900,15 @@ export default function ExecutionPage() {
                   value={verifyDecision}
                   onChange={(e) => setVerifyDecision(e.target.value as "APPROVE" | "RETURN")}
                 >
-                  <option value="APPROVE">Verify (Sesuai) — Lanjut Stage 2</option>
-                  <option value="RETURN">Return to PIC Area for Correction</option>
+                  <option value="APPROVE">Verify & Advance to Stage 2</option>
+                  <option value="RETURN">Return to PIC Area for Revision</option>
                 </select>
               </div>
 
               {verifyDecision === "APPROVE" && (
                 <div className="field">
                   <label htmlFor="verifyClauseStatus">
-                    Status Clause Final (Determined by Supervisor) <span style={{ color: "#c52a2a" }}>*</span>
+                    Final Compliance Status <span style={{ color: "#c52a2a" }}>*</span>
                   </label>
                   <select
                     id="verifyClauseStatus"
@@ -911,7 +927,7 @@ export default function ExecutionPage() {
 
               <div className="field">
                 <label htmlFor="verifyNotes">
-                  Catatan Verifikasi {verifyDecision === "RETURN" && <span style={{ color: "#c52a2a" }}>*</span>}
+                  Verification Notes {verifyDecision === "RETURN" && <span style={{ color: "#c52a2a" }}>*</span>}
                 </label>
                 <textarea
                   id="verifyNotes"
@@ -920,8 +936,8 @@ export default function ExecutionPage() {
                   style={{ width: "100%", height: "auto" }}
                   placeholder={
                     verifyDecision === "RETURN"
-                      ? "Must explain the issues that need to be corrected by the PIC Area..."
-                      : "Verification notes from Supervisor (optional)..."
+                      ? "State the issues that must be corrected by the PIC Area..."
+                      : "Supervisor verification notes (optional)..."
                   }
                   value={verifyNotes}
                   onChange={(e) => setVerifyNotes(e.target.value)}
@@ -936,7 +952,7 @@ export default function ExecutionPage() {
                   {verifying
                     ? "Processing..."
                     : verifyDecision === "APPROVE"
-                    ? "Verify & Continue to Stage 2"
+                    ? "Verify & Advance to Stage 2"
                     : "Return to PIC Area"}
                 </button>
               </div>

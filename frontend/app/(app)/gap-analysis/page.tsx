@@ -50,6 +50,10 @@ export default function GapAnalysisListPage() {
   const canDownloadPdf =
     me?.user.role === "CO_GAP_STAFF" || me?.user.role === "CO_GAP_SUPERVISOR";
 
+  const canAddRegulation =
+    me?.permissions?.some((p) => p.module === "UPLOAD_REGULATION" && p.canEdit) ||
+    me?.user.role === "CO_GAP_STAFF";
+
   const isStage1Completed = (status: string) =>
     status === "EXECUTION" || status === "APPROVAL_STAGE2" || status === "CLOSED";
 
@@ -59,7 +63,7 @@ export default function GapAnalysisListPage() {
       const data = await api<any>(`/api/gap-documents/${gapId}`);
       setSelectedDocForPdf(data);
     } catch (err: any) {
-      setToast("Gagal memuat dokumen Lampiran 1: " + (err?.message || "Error"));
+      setToast("Failed to load document: " + (err?.message || "Error"));
     } finally {
       setLoadingPdfId(null);
     }
@@ -192,7 +196,11 @@ export default function GapAnalysisListPage() {
             lineHeight: 1.4,
           }}
         >
-          <span style={{ fontWeight: 700, flexShrink: 0 }}>✓</span>
+          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: "#166534" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </span>
           <span style={{ flex: 1 }}>{toast}</span>
           <button
             type="button"
@@ -217,7 +225,7 @@ export default function GapAnalysisListPage() {
         <div>
           <h1 className="page-title">Gap Analysis & Action Plan</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
-            Analysis document regarding the splitting of legislative regulations.
+            Gap assessments and regulatory compliance action plans.
           </p>
         </div>
       </div>
@@ -236,7 +244,7 @@ export default function GapAnalysisListPage() {
             className={`tab ${statusFilter === "SUPERVISOR_VERIFICATION" ? "active" : ""}`}
             onClick={() => setStatusFilter("SUPERVISOR_VERIFICATION")}
           >
-            Need Verification ({pendingVerifyCount})
+            Needs Verification ({pendingVerifyCount})
           </button>
         </div>
       )}
@@ -261,7 +269,7 @@ export default function GapAnalysisListPage() {
               setStatusFilter("");
             }}
           >
-            Need to be Worked On ({pendingStaffCount})
+            Action Required ({pendingStaffCount})
           </button>
         </div>
       )}
@@ -286,7 +294,7 @@ export default function GapAnalysisListPage() {
               setStatusFilter("");
             }}
           >
-            Fill Action Plan ({pendingPicActionCount})
+            Action Plan Required ({pendingPicActionCount})
           </button>
         </div>
       )}
@@ -356,7 +364,7 @@ export default function GapAnalysisListPage() {
               <th>100% Comply</th>
               <th>50% Comply</th>
               <th>0% Comply</th>
-              {canDownloadPdf && <th style={{ textAlign: "right" }}>Lampiran 1</th>}
+              {canDownloadPdf && <th style={{ textAlign: "right" }}>PDF Report</th>}
             </tr>
           </thead>
           <tbody>
@@ -416,19 +424,31 @@ export default function GapAnalysisListPage() {
                   </td>
                   {canDownloadPdf && (
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      {isStage1Completed(doc.workflowStatus) ? (
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ minHeight: "28px", padding: "0 0.55rem", fontSize: "0.78rem" }}
-                          disabled={loadingPdfId === doc.gapId}
-                          onClick={() => handleOpenPdf(doc.gapId)}
-                        >
-                          {loadingPdfId === doc.gapId ? "Loading..." : "Download PDF"}
-                        </button>
-                      ) : (
-                        <span className="muted" style={{ fontSize: "0.78rem" }}>—</span>
-                      )}
+                      <div style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center", justifyContent: "flex-end" }}>
+                        {doc.workflowStatus === "CLOSED" && canAddRegulation && (
+                          <Link
+                            href={`/regulations/new?prevRegulationId=${doc.regulationId}&docStatus=REVISION`}
+                            className="btn btn-primary"
+                            style={{ minHeight: "28px", padding: "0 0.55rem", fontSize: "0.76rem" }}
+                            title="Register new regulation revision for continuous improvement"
+                          >
+                            + New Rev
+                          </Link>
+                        )}
+                        {isStage1Completed(doc.workflowStatus) ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ minHeight: "28px", padding: "0 0.55rem", fontSize: "0.78rem" }}
+                            disabled={loadingPdfId === doc.gapId}
+                            onClick={() => handleOpenPdf(doc.gapId)}
+                          >
+                            {loadingPdfId === doc.gapId ? "Loading..." : "Download PDF"}
+                          </button>
+                        ) : doc.workflowStatus !== "CLOSED" ? (
+                          <span className="muted" style={{ fontSize: "0.78rem" }}>—</span>
+                        ) : null}
+                      </div>
                     </td>
                   )}
                 </tr>

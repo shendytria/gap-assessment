@@ -1050,7 +1050,7 @@ export default function GapAnalysisDetailPage() {
                 className="btn btn-ghost"
                 onClick={() => setShowLampiran1(true)}
               >
-                Download PDF (Lampiran 1)
+                Download PDF Report
               </button>
             )}
           <button type="button" onClick={handleBackClick} className="btn btn-ghost">
@@ -1116,8 +1116,18 @@ export default function GapAnalysisDetailPage() {
             lineHeight: 1.4,
           }}
         >
-          <span style={{ fontWeight: 700, flexShrink: 0 }}>
-            {msg.type === "ok" ? "✓" : "!"}
+          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: msg.type === "ok" ? "#166534" : "#991b1b" }}>
+            {msg.type === "ok" ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            )}
           </span>
           <span style={{ flex: 1 }}>{msg.text}</span>
           <button
@@ -1169,13 +1179,13 @@ export default function GapAnalysisDetailPage() {
         </div>
       </div>
 
-      {/* WI Lampiran 1 Spreadsheet Matrix */}
+      {/* Spreadsheet Matrix */}
       <div className="table-wrap" style={{ maxHeight: "70vh", overflow: "auto" }}>
         <table className="table" style={{ fontSize: "0.825rem" }}>
           <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
             <tr>
-              <th style={{ minWidth: "85px" }}>Clausul</th>
-              <th style={{ minWidth: "240px" }}>{doc.legalNumber || "Reference (Klausul)"}</th>
+              <th style={{ minWidth: "85px" }}>Clause</th>
+              <th style={{ minWidth: "240px" }}>{doc.legalNumber || "Reference (Clause)"}</th>
               <th style={{ minWidth: "90px" }}>Applicability</th>
               <th style={{ minWidth: "135px" }}>Dept In Control</th>
               <th style={{ minWidth: "135px" }}>Co-Dept In Control</th>

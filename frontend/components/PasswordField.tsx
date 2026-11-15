@@ -12,7 +12,7 @@ type Props = {
   describedBy?: string;
 };
 
-// URS 001A: password tersembunyi saat halaman dibuka; ikon mata menampilkannya.
+// Password field with visibility toggle icon.
 export default function PasswordField({ label, value, onChange, autoComplete, autoFocus, invalid, describedBy }: Props) {
   const id = useId();
   const [visible, setVisible] = useState(false);

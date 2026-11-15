@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { SessionProvider, useSession } from "@/lib/session";
 import AppSidebar from "@/components/AppSidebar";
+import AppHeader from "@/components/AppHeader";
 import SessionExpiredDialog from "@/components/SessionExpiredDialog";
 
 function Guard({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ function Guard({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <AppSidebar minimal={mustChange} />
       <div className="app-main">
+        {!mustChange && <AppHeader />}
         {children}
       </div>
     </div>

@@ -62,19 +62,113 @@ export default function NewRegulationPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [titleMatchInfo, setTitleMatchInfo] = useState<{ currentRev: number; nextRev: number } | null>(null);
+  const [revisionNotice, setRevisionNotice] = useState<{
+    prevTitle: string;
+    prevLegalNo: string;
+    prevRev: number;
+    nextRev: number;
+  } | null>(null);
   const autoMatchedByTitleRef = useRef(false);
+
+  const loadPreviousClauses = async (prevId: number) => {
+    try {
+      const detail = await api<{
+        regulation: any;
+        clauses: any[];
+      }>(`/api/regulations/${prevId}`);
+
+      if (detail && detail.clauses && detail.clauses.length > 0) {
+        setClauses(
+          detail.clauses.map((c: any, idx: number) => ({
+            sortOrder: c.sortOrder || idx + 1,
+            chapter: c.chapter || "",
+            clauseNo: c.clauseNo || "",
+            clauseTitle: c.clauseTitle || "",
+            requirementText: c.requirementText || "",
+            isInfo: !!c.isInfo,
+          }))
+        );
+        return detail.clauses.length;
+      }
+    } catch (err) {
+      console.error("Failed to load previous clauses:", err);
+    }
+    return 0;
+  };
 
   useEffect(() => {
     Promise.all([
       api<{ id: number; code: string; name: string }[]>("/api/sites"),
       api<{ id: number; code: string; name: string }[]>("/api/categories"),
       api<ExistingRegulation[]>("/api/regulations"),
-    ]).then(([sList, cList, rList]) => {
+    ]).then(async ([sList, cList, rList]) => {
       setSites(sList || []);
       setCategories(cList || []);
       setExistingRegs(rList || []);
       if (sList && sList.length > 0) setSelectedSites([sList[0].id]);
       if (cList && cList.length > 0) setCategoryId(cList[0].id);
+
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const prevIdStr = params.get("prevRegulationId");
+        if (prevIdStr) {
+          const prevId = parseInt(prevIdStr, 10);
+          if (!isNaN(prevId)) {
+            try {
+              const detail = await api<{
+                regulation: any;
+                clauses: any[];
+              }>(`/api/regulations/${prevId}`);
+
+              if (detail && detail.regulation) {
+                const reg = detail.regulation;
+                const prevRev = reg.maxRevisionNo || 0;
+                const nextRev = Math.min(99, prevRev + 1);
+
+                setDocStatus("REVISION");
+                setPreviousRegulationId(reg.id);
+                setTitle(reg.title || "");
+
+                if (reg.legalNumber) {
+                  const match = String(reg.legalNumber).match(/^(.+?)\.(\d{2})$/);
+                  if (match) {
+                    setLegalNumber(`${match[1]}.${String(nextRev).padStart(2, "0")}`);
+                  } else {
+                    setLegalNumber(reg.legalNumber);
+                  }
+                }
+                setRevisionNo(String(nextRev).padStart(2, "0"));
+
+                if (reg.categoryId) setCategoryId(reg.categoryId);
+                if (reg.regulationType) setRegulationType(reg.regulationType);
+
+                if (detail.clauses && detail.clauses.length > 0) {
+                  setClauses(
+                    detail.clauses.map((c: any, idx: number) => ({
+                      sortOrder: c.sortOrder || idx + 1,
+                      chapter: c.chapter || "",
+                      clauseNo: c.clauseNo || "",
+                      clauseTitle: c.clauseTitle || "",
+                      requirementText: c.requirementText || "",
+                      isInfo: !!c.isInfo,
+                    }))
+                  );
+                }
+
+                autoMatchedByTitleRef.current = true;
+                setRevisionNotice({
+                  prevTitle: reg.title,
+                  prevLegalNo: reg.legalNumber,
+                  prevRev,
+                  nextRev,
+                });
+              }
+            } catch (err) {
+              console.error("Failed to load previous regulation detail:", err);
+            }
+          }
+        }
+      }
     });
   }, []);
 
@@ -305,10 +399,56 @@ export default function NewRegulationPage() {
       {error && <div className="alert alert-error">{error}</div>}
       {extractSuccess && <div className="alert alert-info">{extractSuccess}</div>}
 
+      {revisionNotice && (
+        <div
+          className="card"
+          style={{
+            marginBottom: "1rem",
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            padding: "0.85rem 1.1rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "1rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <div
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                background: "#dbeafe",
+                display: "grid",
+                placeItems: "center",
+                color: "#1d4ed8",
+                flexShrink: 0,
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: "0.94rem", color: "#1e40af" }}>
+                Continuous Improvement: Registering Revision (Rev {String(revisionNotice.nextRev).padStart(2, "0")})
+              </div>
+              <div style={{ fontSize: "0.83rem", color: "#3b82f6", marginTop: "0.15rem" }}>
+                Referenced from <strong>{revisionNotice.prevLegalNo}</strong> ({revisionNotice.prevTitle}).
+                Clauses have been pre-filled from the previous baseline.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} style={{ marginTop: "1rem" }}>
-        {/* PDF Upload Section (Opsional) */}
+        {/* PDF Upload Section (Optional) */}
         <div className="card" style={{ marginBottom: "1.25rem" }}>
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.35rem" }}>Upload Regulation PDF Document (Opsional)</h2>
+          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.35rem" }}>Upload Regulation PDF Document (Optional)</h2>
           <p className="muted small" style={{ margin: "0 0 1rem" }}>
             Upload the PDF document of the regulation to automatically extract its number and title and categorize its articles or simply complete the form below if you do not have a PDF file.
           </p>
@@ -363,7 +503,7 @@ export default function NewRegulationPage() {
                 onClick={() => fileInputRef.current?.click()}
                 style={{ background: "var(--surface)" }}
               >
-                Ganti File PDF
+                Change PDF File
               </button>
             </div>
           ) : (
@@ -395,7 +535,7 @@ export default function NewRegulationPage() {
               {uploading ? (
                 <div>
                   <span className="spinner" style={{ display: "inline-block", marginRight: "0.5rem" }} />
-                  <strong>Sedang membaca dokumen PDF dan mengekstrak klausul...</strong>
+                  <strong>Parsing PDF and extracting clauses...</strong>
                 </div>
               ) : (
                 <div>
@@ -514,13 +654,13 @@ export default function NewRegulationPage() {
 
           {docStatus === "REVISION" && (
             <div className="field" style={{ marginTop: "0.75rem" }}>
-              <label htmlFor="prevReg">Previous Regulation (Opsional - pilih regulasi lama yang direvisi)</label>
+              <label htmlFor="prevReg">Previous Regulation (Optional - select previous revision)</label>
               <select
                 id="prevReg"
                 className="filter-select"
                 style={{ width: "100%" }}
                 value={previousRegulationId ?? ""}
-                onChange={(e) => {
+                onChange={async (e) => {
                   const val = e.target.value ? Number(e.target.value) : null;
                   setPreviousRegulationId(val);
                   if (val) {
@@ -530,7 +670,18 @@ export default function NewRegulationPage() {
                       setRevisionNo(String(nextRev).padStart(2, "0"));
                       if (!legalNumber.trim()) setLegalNumber(prev.legalNumber);
                       if (!title.trim()) setTitle(prev.title);
+                      setRevisionNotice({
+                        prevTitle: prev.title,
+                        prevLegalNo: prev.legalNumber,
+                        prevRev: prev.maxRevisionNo || 0,
+                        nextRev,
+                      });
+                      if (clauses.length <= 1 && !clauses[0]?.requirementText) {
+                        await loadPreviousClauses(val);
+                      }
                     }
+                  } else {
+                    setRevisionNotice(null);
                   }
                 }}
               >
@@ -552,7 +703,7 @@ export default function NewRegulationPage() {
               <input
                 id="title"
                 type="text"
-                placeholder="e.g., Sertifikasi Cara Pembuatan Obat yang Baik dan Cara Distribusi Obat yang Baik"
+                placeholder="e.g. Good Manufacturing Practice Certification Guidelines"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 required
@@ -567,7 +718,7 @@ export default function NewRegulationPage() {
                 <input
                   id="legalNumber"
                   type="text"
-                  placeholder="e.g., PERBPOM NOMOR 16 TAHUN 2026 atau WI-QO-QS-1023"
+                  placeholder="e.g. PERBPOM NOMOR 16 TAHUN 2026 or WI-QO-QS-1023"
                   value={legalNumber}
                   onChange={(e) => setLegalNumber(e.target.value)}
                   style={{ flex: 1 }}
@@ -581,7 +732,7 @@ export default function NewRegulationPage() {
                     inputMode="numeric"
                     maxLength={2}
                     aria-label="Revision Number"
-                    title="Nomor Revisi (00, 01, 04, ...)"
+                    title="Revision Number (00, 01, 02...)"
                     value={revisionNo}
                     onChange={(e) => setRevisionNo(e.target.value.replace(/\D/g, "").slice(0, 2))}
                     onBlur={() => setRevisionNo(String(parseInt(revisionNo || "0", 10) || 0).padStart(2, "0"))}
@@ -611,9 +762,9 @@ export default function NewRegulationPage() {
               <thead>
                 <tr>
                   <th style={{ width: "45px" }}>No</th>
-                  <th style={{ width: "160px" }}>Chapter / Bab</th>
+                  <th style={{ width: "160px" }}>Chapter</th>
                   <th style={{ width: "120px" }}>Clause No <span style={{ color: "#c52a2a" }}>*</span></th>
-                  <th style={{ width: "180px" }}>Clause Title (opsional)</th>
+                  <th style={{ width: "180px" }}>Clause Title (Optional)</th>
                   <th>Requirement Text <span style={{ color: "#c52a2a" }}>*</span></th>
                   <th style={{ width: "95px", textAlign: "center" }}>Is INFO?</th>
                   <th style={{ width: "80px", textAlign: "center" }}>Action</th>
@@ -626,7 +777,7 @@ export default function NewRegulationPage() {
                     <td>
                       <input
                         type="text"
-                        placeholder="mis. BAB I / Umum"
+                        placeholder="e.g. Chapter 1 / General"
                         className="filter-input"
                         style={{ width: "100%" }}
                         value={c.chapter}
@@ -636,7 +787,7 @@ export default function NewRegulationPage() {
                     <td>
                       <input
                         type="text"
-                        placeholder="mis. Pasal 1 / 4.1"
+                        placeholder="e.g. Article 1 / 4.1"
                         className="filter-input"
                         style={{ width: "100%", fontWeight: 600 }}
                         value={c.clauseNo}

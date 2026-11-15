@@ -99,9 +99,9 @@ export default function AuditTrailPage() {
     <main className="page">
       <div className="toolbar">
         <div>
-          <h1 className="page-title">Audit Trail (Log History)</h1>
+          <h1 className="page-title">Audit Trail</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
-            Append-only audit trail logging every creation, modification, verification, and approval (URS 004A, ERES).
+            Complete audit trail recording all creations, modifications, verifications, and electronic signatures.
           </p>
         </div>
       </div>
@@ -201,19 +201,18 @@ export default function AuditTrailPage() {
               <th>Site</th>
               <th>Gap No</th>
               <th>Description</th>
-              <th>IP Address</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} style={{ textAlign: "center", padding: "2rem" }}>
+                <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }}>
                   <span className="spinner" style={{ display: "inline-block", verticalAlign: "middle" }} /> Loading audit trail...
                 </td>
               </tr>
             ) : (items || []).length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ textAlign: "center", padding: "2rem" }} className="muted">
+                <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }} className="muted">
                   No audit log entries matching filters.
                 </td>
               </tr>
@@ -242,7 +241,6 @@ export default function AuditTrailPage() {
                     {log.gapNo ? <code>{log.gapNo}</code> : <span className="muted">—</span>}
                   </td>
                   <td style={{ maxWidth: "340px", fontSize: "0.825rem" }}>{log.description}</td>
-                  <td style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{log.ipAddress || "—"}</td>
                 </tr>
               ))
             )}

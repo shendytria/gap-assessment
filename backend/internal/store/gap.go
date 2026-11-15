@@ -74,9 +74,10 @@ type GapAnalysisRow struct {
 	PICUserID           *int       `json:"picUserId"`
 	PICInitials         string     `json:"picInitials"`
 	DueDate             *time.Time `json:"dueDate"`
-	ExecutionStatus     string     `json:"executionStatus"`
-	EvidenceSummary     string     `json:"evidenceSummary"`
-	ApVerifiedByName    string     `json:"apVerifiedByName"`
+	ExecutionStatus     string         `json:"executionStatus"`
+	EvidenceSummary     string         `json:"evidenceSummary"`
+	Evidences           []EvidenceItem `json:"evidences"`
+	ApVerifiedByName    string         `json:"apVerifiedByName"`
 	VerifiedByName      string     `json:"verifiedByName"`
 	VerifiedAt          *time.Time `json:"verifiedAt"`
 	VerificationNotes   string     `json:"verificationNotes"`
@@ -349,6 +350,30 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 				}
 			}
 			coRows.Close()
+		}
+
+		// Hydrate active evidences
+		row.Evidences = []EvidenceItem{}
+		if row.ActionPlanID != nil {
+			evRows, evErr := s.Pool.Query(ctx, `
+				SELECT ev.evidence_id, ev.action_plan_id, COALESCE(ev.evidence_type,'FILE'),
+				       COALESCE(ev.evidence_text,''), ev.file_name, COALESCE(ev.mime_type,''), ev.file_size,
+				       COALESCE(u.full_name,''), ev.uploaded_at
+				FROM evidence ev
+				LEFT JOIN users u ON u.user_id = ev.uploaded_by
+				WHERE ev.action_plan_id = $1 AND ev.is_superseded = FALSE
+				ORDER BY ev.evidence_id ASC`, *row.ActionPlanID)
+			if evErr == nil {
+				for evRows.Next() {
+					var ev EvidenceItem
+					if evRows.Scan(&ev.EvidenceID, &ev.ActionPlanID, &ev.EvidenceType,
+						&ev.EvidenceText, &ev.FileName, &ev.MimeType, &ev.FileSize,
+						&ev.UploadedByName, &ev.UploadedAt) == nil {
+						row.Evidences = append(row.Evidences, ev)
+					}
+				}
+				evRows.Close()
+			}
 		}
 
 		d.Clauses = append(d.Clauses, row)

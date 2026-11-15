@@ -1,8 +1,18 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import ApprovedStamp from "./ApprovedStamp";
-import { exportToPdf, printDocument } from "./pdfHelper";
+import { exportToPdf } from "./pdfHelper";
+import { api } from "@/lib/api";
+
+type EvidenceItem = {
+  evidenceId: number;
+  actionPlanId: number;
+  evidenceType: "FILE" | "TEXT";
+  evidenceText: string;
+  fileName: string;
+  mimeType: string;
+};
 
 type Clause = {
   clauseNo: string;
@@ -27,6 +37,7 @@ type Clause = {
   actionPlanId?: number | null;
   executionStatus?: string;
   evidenceSummary?: string;
+  evidences?: EvidenceItem[];
   apVerifiedByName?: string;
   chapter?: string;
   sortOrder?: number;
@@ -84,6 +95,22 @@ function formatDateShort(dateStr?: string | null): string {
 
 export default function Lampiran1Modal({ doc, onClose }: Props) {
   const [downloading, setDownloading] = useState(false);
+  const [evidenceMap, setEvidenceMap] = useState<Record<number, EvidenceItem[]>>({});
+
+  useEffect(() => {
+    if (!doc.gapId) return;
+    api<any[]>(`/api/gap-documents/${doc.gapId}/action-plans`)
+      .then((plans) => {
+        const m: Record<number, EvidenceItem[]> = {};
+        for (const p of plans || []) {
+          if (p.actionPlanId && p.evidences) {
+            m[p.actionPlanId] = p.evidences;
+          }
+        }
+        setEvidenceMap(m);
+      })
+      .catch(() => {});
+  }, [doc.gapId]);
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -126,21 +153,23 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
     backgroundColor: "#00b050",
     color: "#ffffff",
     fontWeight: 700,
-    fontSize: "6.8pt",
+    fontSize: "5.5pt",
     textAlign: "center",
     verticalAlign: "middle",
     border: "1px solid #000000",
-    padding: "4px 3px",
-    lineHeight: 1.2,
+    padding: "3px 2px",
+    lineHeight: 1.15,
+    wordBreak: "break-word",
   };
 
   const tdBase: React.CSSProperties = {
     border: "1px solid #000000",
-    padding: "3px 4px",
-    fontSize: "6.8pt",
-    lineHeight: 1.28,
+    padding: "2.5px 2.5px",
+    fontSize: "5.5pt",
+    lineHeight: 1.2,
     verticalAlign: "middle",
     color: "#000000",
+    wordBreak: "break-word",
   };
 
   return (
@@ -155,20 +184,17 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
               {doc.gapNo} • {doc.legalNumber}
             </span>
           </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <button type="button" className="btn btn-ghost" onClick={printDocument}>
-              Cetak / Print
-            </button>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <button
               type="button"
               className="btn btn-primary"
               onClick={handleDownload}
               disabled={downloading}
             >
-              {downloading ? "Mengunduh PDF..." : "Download PDF (Lampiran 1)"}
+              {downloading ? "Preparing PDF..." : "Download PDF"}
             </button>
             <button type="button" className="btn btn-ghost" onClick={onClose}>
-              ✕ Tutup
+              Close
             </button>
           </div>
         </div>
@@ -327,22 +353,22 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
           >
             <thead>
               <tr>
-                <th style={{ ...thStyle, width: "3.6%" }}>Clausul</th>
-                <th style={{ ...thStyle, width: "20%" }}>{doc.legalNumber}</th>
-                <th style={{ ...thStyle, width: "4.6%" }}>Applicability</th>
-                <th style={{ ...thStyle, width: "4.8%" }}>Dept In Control</th>
-                <th style={{ ...thStyle, width: "4.8%" }}>Co-Dept In Control</th>
-                <th style={{ ...thStyle, width: "4.6%" }}>Included In Procedure</th>
-                <th style={{ ...thStyle, width: "5.2%" }}>Is Performed In Actual Practices</th>
-                <th style={{ ...thStyle, width: "4.8%" }}>Fullfillment Status</th>
-                <th style={{ ...thStyle, width: "9.4%" }}>Related Document</th>
-                <th style={{ ...thStyle, width: "13%" }}>Actual Condition/Gap</th>
-                <th style={{ ...thStyle, width: "10.2%" }}>Action Plan</th>
-                <th style={{ ...thStyle, width: "3.4%" }}>PIC</th>
+                <th style={{ ...thStyle, width: "3.0%" }}>Clause</th>
+                <th style={{ ...thStyle, width: "16.0%" }}>{doc.legalNumber}</th>
+                <th style={{ ...thStyle, width: "3.0%" }}>Applicability</th>
+                <th style={{ ...thStyle, width: "4.2%" }}>Dept In Control</th>
+                <th style={{ ...thStyle, width: "4.2%" }}>Co-Dept In Control</th>
+                <th style={{ ...thStyle, width: "3.6%" }}>Included In Procedure</th>
+                <th style={{ ...thStyle, width: "4.0%" }}>Is Performed In Actual Practices</th>
+                <th style={{ ...thStyle, width: "3.6%" }}>Fulfillment Status</th>
+                <th style={{ ...thStyle, width: "7.0%" }}>Related Document</th>
+                <th style={{ ...thStyle, width: "9.8%" }}>Actual Condition/Gap</th>
+                <th style={{ ...thStyle, width: "9.2%" }}>Action Plan</th>
+                <th style={{ ...thStyle, width: "2.6%" }}>PIC</th>
                 <th style={{ ...thStyle, width: "4.4%" }}>Due Date</th>
-                <th style={{ ...thStyle, width: "3.4%" }}>Bukti Pemenuhan</th>
-                <th style={{ ...thStyle, width: "2.2%" }}>QS Verification</th>
-                <th style={{ ...thStyle, width: "1.6%" }}>Status</th>
+                <th style={{ ...thStyle, width: "14.0%" }}>Bukti Pemenuhan</th>
+                <th style={{ ...thStyle, width: "7.0%" }}>QS Verification</th>
+                <th style={{ ...thStyle, width: "4.4%" }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -354,7 +380,7 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
                     ...tdBase,
                     backgroundColor: "#9bc2e6",
                     fontWeight: 700,
-                    fontSize: "7.2pt",
+                    fontSize: "6pt",
                     padding: "2px 4px",
                   }}
                 >
@@ -417,7 +443,7 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
                             ...tdBase,
                             backgroundColor: "#ffff00",
                             fontWeight: 700,
-                            fontSize: "7.2pt",
+                            fontSize: "6pt",
                             padding: "2px 4px",
                           }}
                         >
@@ -504,8 +530,81 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
                         <td style={{ ...tdBase, textAlign: "center" }}>
                           {naCell ? "N/A" : c.dueDate ? formatDateShort(c.dueDate) : "-"}
                         </td>
-                        <td style={{ ...tdBase, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                          {naCell ? "" : c.evidenceSummary || ""}
+                        <td style={{ ...tdBase, verticalAlign: "top", textAlign: "left" }}>
+                          {(() => {
+                            if (naCell) return "";
+                            const planEvidences =
+                              (c.actionPlanId && evidenceMap[c.actionPlanId]) ||
+                              c.evidences ||
+                              [];
+
+                            if (planEvidences.length > 0) {
+                              return (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                                  {planEvidences.map((ev) => {
+                                    const isImg =
+                                      ev.evidenceType === "FILE" &&
+                                      (ev.mimeType?.startsWith("image/") ||
+                                        /\.(png|jpe?g|webp|gif|bmp)$/i.test(ev.fileName || ""));
+
+                                    return (
+                                      <div key={ev.evidenceId} style={{ textAlign: "center" }}>
+                                        {isImg ? (
+                                          <div>
+                                            <img
+                                              src={`/api/evidences/${ev.evidenceId}/file`}
+                                              alt={ev.fileName || "Evidence"}
+                                              crossOrigin="anonymous"
+                                              style={{
+                                                maxWidth: "100%",
+                                                maxHeight: "70px",
+                                                height: "auto",
+                                                objectFit: "contain",
+                                                display: "block",
+                                                margin: "0 auto 2px",
+                                                borderRadius: "2px",
+                                                border: "1px solid #777",
+                                                backgroundColor: "#ffffff",
+                                              }}
+                                            />
+                                          </div>
+                                        ) : ev.evidenceType === "FILE" ? (
+                                          <div style={{ fontSize: "5pt", fontWeight: 600, color: "#111", wordBreak: "break-all" }}>
+                                            {ev.fileName}
+                                          </div>
+                                        ) : null}
+
+                                        {ev.evidenceText ? (
+                                          <div
+                                            style={{
+                                              fontSize: "4.8pt",
+                                              color: "#111",
+                                              whiteSpace: "pre-wrap",
+                                              wordBreak: "break-word",
+                                              textAlign: "left",
+                                              marginTop: "1px",
+                                            }}
+                                          >
+                                            {ev.evidenceText}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            }
+
+                            if (c.evidenceSummary) {
+                              return (
+                                <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "5pt" }}>
+                                  {c.evidenceSummary}
+                                </div>
+                              );
+                            }
+
+                            return "-";
+                          })()}
                         </td>
                         <td style={{ ...tdBase, textAlign: "center" }}>
                           {naCell ? "" : c.apVerifiedByName || ""}

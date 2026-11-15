@@ -84,6 +84,19 @@ function LoginForm() {
         <button className="btn btn-primary btn-block" type="submit" disabled={busy || !username || !password}>
           {busy ? "Logging in…" : "Log in"}
         </button>
+
+        <div
+          style={{
+            textAlign: "center",
+            marginTop: "1.5rem",
+            paddingTop: "1rem",
+            borderTop: "1px solid var(--border)",
+            fontSize: "0.78rem",
+            color: "var(--muted)",
+          }}
+        >
+          Developed by <span style={{ fontWeight: 600, color: "var(--primary)" }}>Shendy Tria</span>
+        </div>
       </form>
     </main>
   );

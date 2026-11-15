@@ -69,11 +69,11 @@ export default function ApprovalsPage() {
     setActionErr(null);
 
     if (decision === "REJECT" && !notes.trim()) {
-      setActionErr("Rejection reason is mandatory (URS 009A).");
+      setActionErr("Rejection reason is mandatory.");
       return;
     }
     if (!password) {
-      setActionErr("Password is required for Electronic Signature (ERES compliance).");
+      setActionErr("Password is required for electronic signature.");
       return;
     }
 
