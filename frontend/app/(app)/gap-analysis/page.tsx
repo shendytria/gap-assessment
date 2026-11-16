@@ -188,15 +188,15 @@ export default function GapAnalysisListPage() {
             gap: "0.65rem",
             padding: "0.8rem 1rem",
             borderRadius: "10px",
-            background: "#ecfdf5",
-            border: "1px solid #86efac",
-            color: "#14532d",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            color: "var(--text)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
             fontSize: "0.85rem",
             lineHeight: 1.4,
           }}
         >
-          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: "#166534" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: "var(--ok)" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
@@ -408,17 +408,17 @@ export default function GapAnalysisListPage() {
                     {doc.totalApplicable} / {doc.totalClauses}
                   </td>
                   <td>
-                    <span style={{ fontWeight: 600, color: "var(--ok)" }}>
+                    <span style={{ fontWeight: 500 }}>
                       {doc.pct100.toFixed(1)}% ({doc.count100})
                     </span>
                   </td>
                   <td>
-                    <span style={{ fontWeight: 600, color: "#d99b00" }}>
+                    <span style={{ fontWeight: 500 }}>
                       {doc.pct50.toFixed(1)}% ({doc.count50})
                     </span>
                   </td>
                   <td>
-                    <span style={{ fontWeight: 600, color: "#c52a2a" }}>
+                    <span style={{ fontWeight: 500 }}>
                       {doc.pct0.toFixed(1)}% ({doc.count0})
                     </span>
                   </td>

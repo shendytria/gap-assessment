@@ -147,7 +147,7 @@ export default function HomePage() {
       <div className="stat-grid-dashboard">
         <div className="stat-card">
           <div className="stat-label">Comply (100%)</div>
-          <div className="stat-value" style={{ color: "var(--ok)" }}>
+          <div className="stat-value">
             {loading ? "..." : `${oc?.pct100.toFixed(1) ?? 0}%`}
           </div>
           <div className="stat-sub">
@@ -163,7 +163,7 @@ export default function HomePage() {
 
         <div className="stat-card">
           <div className="stat-label">Partially Comply (50%)</div>
-          <div className="stat-value" style={{ color: "#d99b00" }}>
+          <div className="stat-value">
             {loading ? "..." : `${oc?.pct50.toFixed(1) ?? 0}%`}
           </div>
           <div className="stat-sub">
@@ -179,7 +179,7 @@ export default function HomePage() {
 
         <div className="stat-card">
           <div className="stat-label">Not Comply (0%)</div>
-          <div className="stat-value" style={{ color: "#c52a2a" }}>
+          <div className="stat-value">
             {loading ? "..." : `${oc?.pct0.toFixed(1) ?? 0}%`}
           </div>
           <div className="stat-sub">
@@ -201,7 +201,7 @@ export default function HomePage() {
 
         <div className="stat-card">
           <div className="stat-label">Pending Approvals</div>
-          <div className="stat-value" style={{ color: "var(--primary)" }}>
+          <div className="stat-value">
             {loading ? "..." : data?.pendingApprovals ?? 0}
           </div>
           <div className="stat-sub">Awaiting your electronic review</div>
@@ -209,14 +209,14 @@ export default function HomePage() {
 
         <div className="stat-card">
           <div className="stat-label">Overdue Action Plans</div>
-          <div className="stat-value" style={{ color: "#c52a2a" }}>
+          <div className="stat-value">
             {loading ? "..." : data?.overdueActionPlans ?? 0}
           </div>
           <div className="stat-sub">Past completion due date</div>
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: "1.2fr 1fr", marginTop: "2rem" }}>
+      <div className="grid" style={{ gridTemplateColumns: "1.2fr 1fr", marginTop: "1.5rem" }}>
         {/* Compliance by Site & Category */}
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <section className="card">
@@ -235,7 +235,7 @@ export default function HomePage() {
                       {s.pct100.toFixed(1)}% ({s.count100}/{s.totalApplicable})
                     </span>
                   </div>
-                  <div className="progress-bar" style={{ height: "10px" }}>
+                  <div className="progress-bar" style={{ height: "6px" }}>
                     <div
                       className="progress-fill progress-fill-ok"
                       style={{ width: `${s.pct100}%` }}
@@ -323,9 +323,9 @@ export default function HomePage() {
                           key={`doc-${d.gapId}`}
                           style={{
                             padding: "0.75rem",
-                            border: `1px solid ${isReturned ? "#fca5a5" : "var(--border)"}`,
+                            border: `1px solid ${isReturned ? "var(--err-border)" : "var(--border)"}`,
                             borderRadius: "8px",
-                            background: isReturned ? "#fef2f2" : "var(--surface-2)",
+                            background: isReturned ? "var(--err-bg)" : "var(--surface)",
                           }}
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
@@ -344,8 +344,8 @@ export default function HomePage() {
                                 marginTop: "0.4rem",
                                 padding: "0.45rem 0.6rem",
                                 borderRadius: "6px",
-                                background: "#fff8e1",
-                                color: "#6b4f00",
+                                background: "#fcf6e4",
+                                color: "#7d5a00",
                                 fontSize: "0.8rem",
                               }}
                             >
@@ -373,7 +373,7 @@ export default function HomePage() {
                           padding: "0.75rem",
                           border: "1px solid var(--border)",
                           borderRadius: "8px",
-                          background: "var(--surface-2)",
+                          background: "var(--surface)",
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
@@ -435,7 +435,7 @@ export default function HomePage() {
                         padding: "0.75rem",
                         border: "1px solid var(--border)",
                         borderRadius: "8px",
-                        background: "var(--surface-2)",
+                        background: "var(--surface)",
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -475,7 +475,7 @@ export default function HomePage() {
                         padding: "0.75rem",
                         border: "1px solid var(--border)",
                         borderRadius: "8px",
-                        background: "var(--surface-2)",
+                        background: "var(--surface)",
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between" }}>

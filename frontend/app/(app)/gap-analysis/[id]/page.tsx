@@ -239,7 +239,7 @@ function DeptMultiSelect({
               background: "var(--surface)",
               border: "1px solid var(--border)",
               borderRadius: "8px",
-              boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
               padding: "0.35rem",
             }}
           >
@@ -403,7 +403,7 @@ function DecisionOptionCard({
   onSelect: () => void;
 }) {
   const accent = tone === "danger" ? "#c52a2a" : "var(--primary)";
-  const activeBg = tone === "danger" ? "#fef2f2" : "var(--ok-bg)";
+  const activeBg = tone === "danger" ? "var(--err-bg)" : "var(--ok-bg)";
   return (
     <label
       style={{
@@ -1063,9 +1063,9 @@ export default function GapAnalysisDetailPage() {
         <div
           className="alert"
           style={{
-            background: "#fff8e1",
-            border: "1px solid #f0d060",
-            color: "#6b4f00",
+            background: "#fcf6e4",
+            border: "1px solid #efe1ad",
+            color: "#7d5a00",
             marginBottom: "0.75rem",
           }}
         >
@@ -1108,15 +1108,15 @@ export default function GapAnalysisDetailPage() {
             gap: "0.65rem",
             padding: "0.8rem 1rem",
             borderRadius: "10px",
-            background: msg.type === "ok" ? "#ecfdf5" : "#fef2f2",
-            border: `1px solid ${msg.type === "ok" ? "#86efac" : "#fca5a5"}`,
-            color: msg.type === "ok" ? "#14532d" : "#7f1d1d",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+            background: msg.type === "ok" ? "var(--surface)" : "var(--err-bg)",
+            border: `1px solid ${msg.type === "ok" ? "var(--border)" : "var(--err-border)"}`,
+            color: msg.type === "ok" ? "var(--text)" : "var(--err-text)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
             fontSize: "0.85rem",
             lineHeight: 1.4,
           }}
         >
-          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: msg.type === "ok" ? "#166534" : "#991b1b" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: msg.type === "ok" ? "var(--ok)" : "var(--err-text)" }}>
             {msg.type === "ok" ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
@@ -1158,21 +1158,21 @@ export default function GapAnalysisDetailPage() {
         </div>
         <div className="stat-card" style={{ padding: "0.85rem" }}>
           <div className="stat-label">Comply (100%)</div>
-          <div className="stat-value" style={{ color: "var(--ok)" }}>
+          <div className="stat-value">
             {doc.pct100.toFixed(1)}%
           </div>
           <div className="stat-sub">{doc.count100} clauses</div>
         </div>
         <div className="stat-card" style={{ padding: "0.85rem" }}>
           <div className="stat-label">Partially Comply (50%)</div>
-          <div className="stat-value" style={{ color: "#d99b00" }}>
+          <div className="stat-value">
             {doc.pct50.toFixed(1)}%
           </div>
           <div className="stat-sub">{doc.count50} clauses</div>
         </div>
         <div className="stat-card" style={{ padding: "0.85rem" }}>
           <div className="stat-label">Not Comply (0%)</div>
-          <div className="stat-value" style={{ color: "#c52a2a" }}>
+          <div className="stat-value">
             {doc.pct0.toFixed(1)}%
           </div>
           <div className="stat-sub">{doc.count0} clauses</div>

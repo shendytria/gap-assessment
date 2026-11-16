@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
 
@@ -17,27 +17,9 @@ type AppNotification = {
   readAt: string | null;
 };
 
-function getPageInfo(pathname: string): { title: string; parent?: { label: string; href: string } } {
-  if (pathname === "/home") return { title: "Dashboard" };
-  if (pathname === "/master-list") return { title: "Master List" };
-  if (pathname === "/regulations") return { title: "Regulations" };
-  if (pathname === "/regulations/new")
-    return { title: "Register Regulation", parent: { label: "Regulations", href: "/regulations" } };
-  if (pathname === "/gap-analysis") return { title: "Gap Analysis" };
-  if (pathname.startsWith("/gap-analysis/"))
-    return { title: "Document Detail", parent: { label: "Gap Analysis", href: "/gap-analysis" } };
-  if (pathname === "/approvals") return { title: "Electronic Approvals" };
-  if (pathname === "/execution") return { title: "Execution & Evidence" };
-  if (pathname === "/audit-trail") return { title: "Audit Trail" };
-  if (pathname === "/settings") return { title: "Settings" };
-  if (pathname === "/change-password") return { title: "Change Password" };
-  return { title: "Gap Assessment" };
-}
-
 export default function AppHeader() {
   const { me, logout } = useSession();
   const router = useRouter();
-  const pathname = usePathname();
 
   const [notifs, setNotifs] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -135,24 +117,10 @@ export default function AppHeader() {
       .slice(0, 2)
       .join("");
 
-  const pageInfo = getPageInfo(pathname);
-
   return (
     <header className="app-header">
-      {/* Breadcrumb / Title */}
-      <div className="header-breadcrumb">
-        {pageInfo.parent ? (
-          <>
-            <Link href={pageInfo.parent.href} className="header-breadcrumb-link">
-              {pageInfo.parent.label}
-            </Link>
-            <span className="header-breadcrumb-sep">/</span>
-            <span className="header-breadcrumb-active">{pageInfo.title}</span>
-          </>
-        ) : (
-          <span className="header-breadcrumb-active">{pageInfo.title}</span>
-        )}
-      </div>
+      {/* Left Spacer */}
+      <div className="header-left" />
 
       {/* Right Actions */}
       <div className="header-actions">

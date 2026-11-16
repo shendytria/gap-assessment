@@ -380,10 +380,10 @@ export default function ExecutionPage() {
             gap: "0.65rem",
             padding: "0.8rem 1rem",
             borderRadius: "10px",
-            background: toast.type === "ok" ? "#ecfdf5" : "#fef2f2",
-            border: `1px solid ${toast.type === "ok" ? "#86efac" : "#fca5a5"}`,
-            color: toast.type === "ok" ? "#14532d" : "#7f1d1d",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+            background: toast.type === "ok" ? "var(--surface)" : "var(--err-bg)",
+            border: `1px solid ${toast.type === "ok" ? "var(--border)" : "var(--err-border)"}`,
+            color: toast.type === "ok" ? "var(--text)" : "var(--err-text)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
             fontSize: "0.85rem",
             lineHeight: 1.4,
           }}
@@ -670,7 +670,7 @@ export default function ExecutionPage() {
                 )}
               </div>
               {selectedPlan.pendingDueChange && (
-                <div className="small" style={{ marginTop: "0.45rem", padding: "0.45rem 0.6rem", background: "#fff8e1", borderRadius: "6px", color: "#6b4f00" }}>
+                <div className="small" style={{ marginTop: "0.45rem", padding: "0.45rem 0.6rem", background: "#fcf6e4", borderRadius: "6px", color: "#7d5a00" }}>
                   Waiting for Supervisor verification: change due date to{" "}
                   <strong>{new Date(selectedPlan.pendingDueChange.newDueDate).toLocaleDateString()}</strong>{" "}
                   (Reason: {selectedPlan.pendingDueChange.reason})
@@ -679,7 +679,7 @@ export default function ExecutionPage() {
             </div>
 
             {showDueReqForm && (
-              <div style={{ border: "1px solid var(--border)", borderRadius: "8px", padding: "0.75rem", marginBottom: "1rem", background: "#fafafa" }}>
+              <div style={{ border: "1px solid var(--border)", borderRadius: "8px", padding: "0.75rem", marginBottom: "1rem", background: "var(--surface)" }}>
                 <div style={{ fontWeight: 700, fontSize: "0.85rem", marginBottom: "0.5rem" }}>
                   Due Date Change Request (Requires Supervisor Verification)
                 </div>

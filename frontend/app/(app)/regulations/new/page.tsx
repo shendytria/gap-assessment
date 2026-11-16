@@ -404,8 +404,8 @@ export default function NewRegulationPage() {
           className="card"
           style={{
             marginBottom: "1rem",
-            background: "#eff6ff",
-            border: "1px solid #bfdbfe",
+            background: "var(--info-bg)",
+            border: "1px solid var(--info-border)",
             padding: "0.85rem 1.1rem",
             display: "flex",
             alignItems: "center",
@@ -420,10 +420,11 @@ export default function NewRegulationPage() {
                 width: "36px",
                 height: "36px",
                 borderRadius: "50%",
-                background: "#dbeafe",
+                background: "var(--surface)",
+                border: "1px solid var(--info-border)",
                 display: "grid",
                 placeItems: "center",
-                color: "#1d4ed8",
+                color: "var(--primary)",
                 flexShrink: 0,
               }}
             >
@@ -433,10 +434,10 @@ export default function NewRegulationPage() {
               </svg>
             </div>
             <div>
-              <div style={{ fontWeight: 700, fontSize: "0.94rem", color: "#1e40af" }}>
+              <div style={{ fontWeight: 700, fontSize: "0.94rem", color: "var(--text)" }}>
                 Continuous Improvement: Registering Revision (Rev {String(revisionNotice.nextRev).padStart(2, "0")})
               </div>
-              <div style={{ fontSize: "0.83rem", color: "#3b82f6", marginTop: "0.15rem" }}>
+              <div style={{ fontSize: "0.83rem", color: "var(--muted)", marginTop: "0.15rem" }}>
                 Referenced from <strong>{revisionNotice.prevLegalNo}</strong> ({revisionNotice.prevTitle}).
                 Clauses have been pre-filled from the previous baseline.
               </div>
@@ -448,7 +449,7 @@ export default function NewRegulationPage() {
       <form onSubmit={handleSubmit} style={{ marginTop: "1rem" }}>
         {/* PDF Upload Section (Optional) */}
         <div className="card" style={{ marginBottom: "1.25rem" }}>
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.35rem" }}>Upload Regulation PDF Document (Optional)</h2>
+          <h2 style={{ fontSize: "1rem", marginBottom: "0.35rem" }}>Upload Regulation PDF Document (Optional)</h2>
           <p className="muted small" style={{ margin: "0 0 1rem" }}>
             Upload the PDF document of the regulation to automatically extract its number and title and categorize its articles or simply complete the form below if you do not have a PDF file.
           </p>
@@ -553,7 +554,7 @@ export default function NewRegulationPage() {
 
         {/* 1. Regulation Metadata */}
         <div className="card" style={{ marginTop: "1.25rem" }}>
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.75rem" }}>1. Regulation Metadata & Target Site</h2>
+          <h2 style={{ fontSize: "1rem", marginBottom: "0.75rem" }}>1. Regulation Metadata & Target Site</h2>
 
           <div className="field" style={{ marginBottom: "1.25rem" }}>
             <label style={{ display: "block", marginBottom: "0.5rem" }}>
@@ -748,7 +749,7 @@ export default function NewRegulationPage() {
         <div className="card" style={{ marginTop: "1.5rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
             <div>
-              <h2 style={{ fontSize: "1.1rem", marginBottom: "0.25rem" }}>
+              <h2 style={{ fontSize: "1rem", marginBottom: "0.25rem" }}>
                 2. Clauses Review & Edit ({clauses.length} clauses)
               </h2>
               <p className="muted small" style={{ margin: "0" }}>

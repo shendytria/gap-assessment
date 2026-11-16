@@ -92,27 +92,32 @@ type ChangeNoteItem struct {
 }
 
 type ApprovalSignatureItem struct {
-	ApprovalID       int64      `json:"approvalId"`
-	Stage            string     `json:"stage"`
-	CycleNo          int        `json:"cycleNo"`
-	RoleCode         string     `json:"roleCode"`
-	RoleName         string     `json:"roleName"`
-	DepartmentCode   string     `json:"departmentCode"`
-	AssignedName     string     `json:"assignedName"`
-	ActedByName      string     `json:"actedByName"`
-	OnBehalfOfName   string     `json:"onBehalfOfName"`
-	Result           string     `json:"result"`
-	ActedAt          *time.Time `json:"actedAt"`
-	SignatureMeaning string     `json:"signatureMeaning"`
+	ApprovalID         int64      `json:"approvalId"`
+	Stage              string     `json:"stage"`
+	CycleNo            int        `json:"cycleNo"`
+	RoleCode           string     `json:"roleCode"`
+	RoleName           string     `json:"roleName"`
+	DepartmentCode     string     `json:"departmentCode"`
+	AssignedName       string     `json:"assignedName"`
+	ActedByName        string     `json:"actedByName"`
+	OnBehalfOfName     string     `json:"onBehalfOfName"`
+	AssignedInitials   string     `json:"assignedInitials"`
+	ActedByInitials    string     `json:"actedByInitials"`
+	OnBehalfOfInitials string     `json:"onBehalfOfInitials"`
+	Result             string     `json:"result"`
+	ActedAt            *time.Time `json:"actedAt"`
+	SignatureMeaning   string     `json:"signatureMeaning"`
 }
 
 type GapDocumentDetail struct {
 	GapDocSummary
-	Clauses        []GapAnalysisRow        `json:"clauses"`
-	ChangeNotes    []ChangeNoteItem        `json:"changeNotes"`
-	Approvals      []ApprovalSignatureItem `json:"approvals"`
-	VerifiedByName string                  `json:"verifiedByName"`
-	VerifiedAt     *time.Time              `json:"verifiedAt"`
+	Clauses            []GapAnalysisRow        `json:"clauses"`
+	ChangeNotes        []ChangeNoteItem        `json:"changeNotes"`
+	Approvals          []ApprovalSignatureItem `json:"approvals"`
+	VerifiedByName     string                  `json:"verifiedByName"`
+	VerifiedByInitials string                  `json:"verifiedByInitials"`
+	VerifiedAt         *time.Time              `json:"verifiedAt"`
+	CreatedByInitials  string                  `json:"createdByInitials"`
 }
 
 func (s *Store) ListGapDocuments(ctx context.Context, actor *User, siteID, categoryID *int, status *string) ([]GapDocSummary, error) {
@@ -218,7 +223,7 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 		       g.site_id, s.site_code, s.site_name,
 		       g.category_id, c.category_code, c.category_name,
 		       g.workflow_status::text, g.revision_no, g.effective_date,
-		       0, 0, 0, 0, 0, u.full_name, g.created_at,
+		       0, 0, 0, 0, 0, u.full_name, COALESCE(u.initials, ''), g.created_at,
 		       COALESCE(g.return_notes,''), g.returned_at, COALESCE(u_ret.full_name,'')
 		FROM gap_document g
 		JOIN regulation r ON r.regulation_id = g.regulation_id
@@ -232,7 +237,7 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 		&d.CategoryID, &d.CategoryCode, &d.CategoryName,
 		&d.WorkflowStatus, &d.RevisionNo, &d.EffectiveDate,
 		&d.TotalClauses, &d.TotalApplicable, &d.Count100, &d.Count50, &d.Count0,
-		&d.CreatedByName, &d.CreatedAt,
+		&d.CreatedByName, &d.CreatedByInitials, &d.CreatedAt,
 		&d.ReturnNotes, &d.ReturnedAt, &d.ReturnedByName)
 	if err != nil {
 		return nil, err
@@ -407,6 +412,7 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 		SELECT a.approval_id, a.stage::text, a.cycle_no, r.role_code, r.role_name,
 		       COALESCE(d.department_code, ''),
 		       u_asg.full_name, COALESCE(u_act.full_name, ''), COALESCE(u_obh.full_name, ''),
+		       COALESCE(u_asg.initials, ''), COALESCE(u_act.initials, ''), COALESCE(u_obh.initials, ''),
 		       a.result::text, a.acted_at, COALESCE(a.signature_meaning, '')
 		FROM approval a
 		JOIN role r ON r.role_id = a.role_id
@@ -421,6 +427,7 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 			var ap ApprovalSignatureItem
 			if appRows.Scan(&ap.ApprovalID, &ap.Stage, &ap.CycleNo, &ap.RoleCode, &ap.RoleName,
 				&ap.DepartmentCode, &ap.AssignedName, &ap.ActedByName, &ap.OnBehalfOfName,
+				&ap.AssignedInitials, &ap.ActedByInitials, &ap.OnBehalfOfInitials,
 				&ap.Result, &ap.ActedAt, &ap.SignatureMeaning) == nil {
 				d.Approvals = append(d.Approvals, ap)
 			}
@@ -430,11 +437,11 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 
 	// Supervisor verification info
 	_ = s.Pool.QueryRow(ctx, `
-		SELECT u.full_name, ga.verified_at
+		SELECT u.full_name, COALESCE(u.initials, ''), ga.verified_at
 		FROM gap_analysis ga
 		JOIN users u ON u.user_id = ga.verified_by
 		WHERE ga.gap_id = $1 AND ga.verified_by IS NOT NULL
-		LIMIT 1`, gapID).Scan(&d.VerifiedByName, &d.VerifiedAt)
+		LIMIT 1`, gapID).Scan(&d.VerifiedByName, &d.VerifiedByInitials, &d.VerifiedAt)
 
 	return &d, rows.Err()
 }

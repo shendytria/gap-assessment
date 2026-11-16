@@ -214,7 +214,7 @@ export default function MasterListPage() {
                     </td>
                     <td>
                       {item.gapId ? (
-                        <span style={{ fontWeight: 600, color: "var(--ok)" }}>
+                        <span style={{ fontWeight: 500 }}>
                           {item.compliancePct100.toFixed(1)}%
                         </span>
                       ) : (

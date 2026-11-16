@@ -53,6 +53,9 @@ type Approval = {
   assignedName: string;
   actedByName: string;
   onBehalfOfName: string;
+  assignedInitials?: string;
+  actedByInitials?: string;
+  onBehalfOfInitials?: string;
   result: string;
   actedAt: string | null;
   signatureMeaning: string;
@@ -66,8 +69,11 @@ type GapDocDetail = {
   siteCode: string;
   siteName: string;
   effectiveDate: string;
+  createdAt?: string | null;
   createdByName: string;
+  createdByInitials?: string;
   verifiedByName?: string;
+  verifiedByInitials?: string;
   verifiedAt?: string | null;
   clauses: Clause[];
   approvals?: Approval[];
@@ -83,14 +89,63 @@ function formatDateShort(dateStr?: string | null): string {
   try {
     const d = new Date(dateStr);
     if (Number.isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
+    return d.toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
       year: "numeric",
     });
   } catch {
     return dateStr;
   }
+}
+
+function formatReviewDate(dateStr?: string | null): string {
+  if (!dateStr) return "-";
+  try {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return "-";
+    d.setFullYear(d.getFullYear() + 3);
+    return d.toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return "-";
+  }
+}
+
+function formatTimestampWIB(dateStr?: string | null): string {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return "";
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = months[d.getMonth()];
+    const day = String(d.getDate()).padStart(2, "0");
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, "0");
+    const mins = String(d.getMinutes()).padStart(2, "0");
+    return `${month} ${day} ${year} ${hours}:${mins} WIB`;
+  } catch {
+    return "";
+  }
+}
+
+function getDisplayInitials(explicitInitials?: string, fullName?: string): string {
+  if (explicitInitials && explicitInitials.trim()) {
+    return explicitInitials.trim().toUpperCase();
+  }
+  if (!fullName || !fullName.trim()) return "-";
+  const clean = fullName
+    .replace(/\(.*?\)/g, "")
+    .replace(/^(dr\.|drg\.|prof\.|ir\.)\s*/i, "")
+    .trim();
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return fullName.slice(0, 3).toUpperCase();
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  if (words.length === 2) return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  return words.map((w) => w[0]).join("").toUpperCase();
 }
 
 export default function Lampiran1Modal({ doc, onClose }: Props) {
@@ -137,6 +192,8 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
   const headQo = stage1Approvals.find((a) => a.roleCode === "QO_HEAD");
 
   const approvalSlots: { key: string; roleLabel: string; item?: Approval }[] = [
+    { key: "qs-mgr", roleLabel: "QS Manager", item: mgrQs },
+    ...(mgrQa ? [{ key: "qa-mgr", roleLabel: doc.siteCode ? `QA Manager ${doc.siteCode}` : "QA Manager", item: mgrQa }] : []),
     ...(managerAreas.length > 0
       ? managerAreas.map((m, idx) => ({
           key: `mgr-area-${m.approvalId}-${idx}`,
@@ -144,8 +201,6 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
           item: m,
         }))
       : [{ key: "mgr-area-empty", roleLabel: "Manager Area", item: undefined }]),
-    { key: "qs-mgr", roleLabel: "QS Manager", item: mgrQs },
-    ...(mgrQa ? [{ key: "qa-mgr", roleLabel: "QA Manager", item: mgrQa }] : []),
     { key: "qo-head", roleLabel: "QO Div. Head", item: headQo },
   ];
 
@@ -205,19 +260,34 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
             background: "#ffffff",
             color: "#000000",
             fontFamily: "Arial, Helvetica, sans-serif",
-            padding: "14px 16px",
+            padding: "14px 16px 56px 16px",
+            position: "relative",
+            minHeight: "640px",
+            boxSizing: "border-box",
           }}
         >
           {/* Top Document Title & Metadata matching PDF template */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 220px",
-              alignItems: "start",
-              marginBottom: "6px",
+              gridTemplateColumns: "170px 1fr 220px",
+              alignItems: "center",
+              marginBottom: "8px",
+              gap: "12px",
             }}
           >
-            <div style={{ textAlign: "center", paddingLeft: "110px" }}>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <img
+                src="/logo-kch.png"
+                alt="Kalbe Consumer Health"
+                style={{
+                  maxHeight: "42px",
+                  maxWidth: "165px",
+                  objectFit: "contain",
+                }}
+              />
+            </div>
+            <div style={{ textAlign: "center" }}>
               <div style={{ fontSize: "10.5pt", fontWeight: 700, letterSpacing: "0.2px" }}>
                 IDENTIFIKASI, EVALUASI DAN RENCANA PEMENUHAN
               </div>
@@ -253,6 +323,13 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
                     {formatDateShort(doc.effectiveDate)}
                   </td>
                 </tr>
+                <tr>
+                  <td style={{ padding: "1px 6px 1px 0", textAlign: "left" }}>Review Date</td>
+                  <td style={{ padding: "1px 4px" }}>:</td>
+                  <td style={{ padding: "1px 0", textAlign: "left" }}>
+                    {formatReviewDate(doc.effectiveDate)}
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -261,81 +338,125 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 3fr",
+              gridTemplateColumns: "1.7fr 3.3fr",
               gap: "12px",
-              marginBottom: "6px",
-              fontSize: "7pt",
+              marginBottom: "8px",
+              fontSize: "6.5pt",
               color: "#000000",
             }}
           >
-            {/* Dibuat Oleh */}
+            {/* Dibuat Oleh (Dapat memuat Staff pembuat & Supervisor pemeriksa) */}
             <div>
-              <div style={{ textAlign: "center", marginBottom: "4px" }}>Dibuat Oleh,</div>
-              <div style={{ display: "flex", justifyContent: "center", gap: "18px" }}>
-                <div style={{ textAlign: "center", minWidth: "95px" }}>
+              <div style={{ textAlign: "center", marginBottom: "3px", fontWeight: 600 }}>Dibuat Oleh,</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                {/* 1. Co Gap / QS Staff (Pembuat / Drafter) */}
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "5pt", color: "#333333", minHeight: "11px", lineHeight: 1.1 }}>
+                    {formatTimestampWIB(doc.createdAt || doc.effectiveDate)}
+                  </div>
                   <div
                     style={{
-                      minHeight: "24px",
+                      minHeight: "22px",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    {doc.verifiedByName ? <ApprovedStamp width={66} height={19} /> : null}
+                    {doc.createdByName ? <ApprovedStamp width={58} height={17} /> : <div style={{ height: "17px" }} />}
                   </div>
                   <div
                     style={{
                       fontWeight: 700,
-                      textDecoration: "underline",
                       marginTop: "2px",
+                      fontSize: "7.5pt",
+                      letterSpacing: "0.5px",
                     }}
                   >
-                    {doc.verifiedByName || doc.createdByName || "QS Supervisor"}
+                    {getDisplayInitials(doc.createdByInitials, doc.createdByName)}
                   </div>
-                  <div>(QS Supervisor)</div>
+                  <div style={{ fontSize: "6pt", color: "#111111" }}>(QS Staff)</div>
+                </div>
+
+                {/* 2. Co Gap / QS Supervisor (Pemeriksa / Verifikator) */}
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "5pt", color: "#333333", minHeight: "11px", lineHeight: 1.1 }}>
+                    {doc.verifiedByName ? formatTimestampWIB(doc.verifiedAt) : ""}
+                  </div>
+                  <div
+                    style={{
+                      minHeight: "22px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {doc.verifiedByName ? <ApprovedStamp width={58} height={17} /> : <div style={{ height: "17px" }} />}
+                  </div>
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      marginTop: "2px",
+                      fontSize: "7.5pt",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    {doc.verifiedByName
+                      ? getDisplayInitials(doc.verifiedByInitials, doc.verifiedByName)
+                      : "-"}
+                  </div>
+                  <div style={{ fontSize: "6pt", color: "#111111" }}>(QS Supervisor)</div>
                 </div>
               </div>
             </div>
 
             {/* Disetujui Oleh */}
             <div>
-              <div style={{ textAlign: "center", marginBottom: "4px" }}>Disetujui Oleh,</div>
+              <div style={{ textAlign: "center", marginBottom: "3px", fontWeight: 600 }}>Disetujui Oleh,</div>
               <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: `repeat(${approvalSlots.length}, minmax(0, 1fr))`,
-                  gap: "8px",
+                  gap: "6px",
                 }}
               >
                 {approvalSlots.map((slot) => {
                   const isApproved = slot.item?.result === "APPROVED";
-                  const signerName = slot.item
+                  const signerInitial = slot.item
                     ? slot.item.onBehalfOfName
-                      ? `${slot.item.actedByName} (o/b ${slot.item.onBehalfOfName})`
-                      : slot.item.actedByName || slot.item.assignedName
+                      ? `${getDisplayInitials(slot.item.actedByInitials, slot.item.actedByName)} (o/b ${getDisplayInitials(slot.item.onBehalfOfInitials, slot.item.onBehalfOfName)})`
+                      : getDisplayInitials(
+                          slot.item.actedByInitials || slot.item.assignedInitials,
+                          slot.item.actedByName || slot.item.assignedName
+                        )
                     : "-";
+                  const timestampStr = isApproved ? formatTimestampWIB(slot.item?.actedAt) : "";
+
                   return (
                     <div key={slot.key} style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "5pt", color: "#333333", minHeight: "11px", lineHeight: 1.1 }}>
+                        {timestampStr}
+                      </div>
                       <div
                         style={{
-                          minHeight: "24px",
+                          minHeight: "22px",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                         }}
                       >
-                        {isApproved ? <ApprovedStamp width={66} height={19} /> : null}
+                        {isApproved ? <ApprovedStamp width={62} height={18} /> : <div style={{ height: "18px" }} />}
                       </div>
                       <div
                         style={{
                           fontWeight: 700,
-                          textDecoration: "underline",
                           marginTop: "2px",
+                          fontSize: "7.5pt",
+                          letterSpacing: "0.5px",
                         }}
                       >
-                        {signerName}
+                        {signerInitial}
                       </div>
-                      <div>({slot.roleLabel})</div>
+                      <div style={{ fontSize: "6pt", color: "#111111" }}>({slot.roleLabel})</div>
                     </div>
                   );
                 })}
@@ -616,7 +737,66 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
                 );
               })}
             </tbody>
+            {/* Table footer spacer to reserve clearance for fixed page footer */}
+            <tfoot>
+              <tr>
+                <td
+                  colSpan={16}
+                  style={{
+                    border: "none",
+                    height: "46px",
+                    padding: 0,
+                  }}
+                />
+              </tr>
+            </tfoot>
           </table>
+
+          {/* True Page Footer fixed at bottom */}
+          <div
+            className="lampiran-page-footer"
+            style={{
+              position: "absolute",
+              bottom: "10px",
+              left: "16px",
+              right: "16px",
+              backgroundColor: "#ffffff",
+              paddingTop: "4px",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                alignItems: "start",
+                fontSize: "5.5pt",
+                color: "#111111",
+              }}
+            >
+              <div style={{ textAlign: "center" }}>
+                <div style={{ lineHeight: 1.25, fontWeight: 500 }}>
+                  Dokumen ini telah ditandatangani secara elektronik menggunakan aplikasi FUPD Online dengan melampirkan lembar persetujuan elektronik
+                </div>
+                <div style={{ lineHeight: 1.25, fontWeight: 500 }}>
+                  milik Kalbe Consumer Health ( A Kalbe Company )
+                </div>
+                <div style={{ marginTop: "4px" }}>
+                  <ApprovedStamp width={66} height={19} />
+                </div>
+              </div>
+              <div
+                style={{
+                  textAlign: "right",
+                  fontSize: "5.5pt",
+                  whiteSpace: "nowrap",
+                  paddingLeft: "12px",
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>Lampiran 1 :WI-QO-QS-1023 rev.03</div>
+                <div style={{ marginTop: "14px", color: "#333333" }}>Halaman : 1/1</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

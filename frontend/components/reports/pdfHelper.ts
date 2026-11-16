@@ -41,7 +41,7 @@ export function exportToPdf(elementId: string, filename: string): Promise<void> 
             <style>
               @page {
                 size: A4 landscape;
-                margin: 5mm 5mm;
+                margin: 0;
               }
               * {
                 box-sizing: border-box;
@@ -60,9 +60,10 @@ export function exportToPdf(elementId: string, filename: string): Promise<void> 
               #${elementId} {
                 width: 100% !important;
                 max-width: 100% !important;
-                padding: 0 !important;
+                padding: 6mm 7mm 16mm 7mm !important;
                 margin: 0 !important;
                 background: #ffffff !important;
+                box-sizing: border-box !important;
               }
               table {
                 border-collapse: collapse !important;
@@ -72,6 +73,9 @@ export function exportToPdf(elementId: string, filename: string): Promise<void> 
               thead {
                 display: table-header-group !important;
               }
+              tfoot {
+                display: table-footer-group !important;
+              }
               tr {
                 page-break-inside: avoid !important;
                 page-break-after: auto;
@@ -79,6 +83,17 @@ export function exportToPdf(elementId: string, filename: string): Promise<void> 
               th, td {
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
+              }
+              .lampiran-page-footer {
+                position: fixed !important;
+                bottom: 3.5mm !important;
+                left: 7mm !important;
+                right: 7mm !important;
+                width: auto !important;
+                background: #ffffff !important;
+                padding-top: 0 !important;
+                border-top: none !important;
+                z-index: 9999 !important;
               }
             </style>
           </head>

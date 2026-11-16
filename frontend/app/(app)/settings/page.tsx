@@ -590,9 +590,9 @@ export default function SettingsPage() {
                               minHeight: "30px",
                               fontSize: "0.8rem",
                               padding: "0 0.65rem",
-                              background: d.isActive ? "#fee2e2" : "#dcfce7",
-                              color: d.isActive ? "#991b1b" : "#166534",
-                              border: `1px solid ${d.isActive ? "#f87171" : "#86efac"}`,
+                              background: "var(--surface)",
+                              color: d.isActive ? "var(--err-text)" : "var(--ok)",
+                              border: `1px solid ${d.isActive ? "var(--err-border)" : "var(--info-border)"}`,
                               fontWeight: 600,
                             }}
                             onClick={() => handleToggleDeptStatus(d)}
