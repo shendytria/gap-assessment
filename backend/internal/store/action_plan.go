@@ -72,6 +72,8 @@ type ActionPlanItem struct {
 	VerifiedByName      string          `json:"verifiedByName"`
 	VerifiedAt          *time.Time      `json:"verifiedAt"`
 	FulfillmentNotes    string          `json:"fulfillmentNotes"`
+	ReturnNotes         string          `json:"returnNotes"`
+	ReturnedByName      string          `json:"returnedByName"`
 	Notes               string          `json:"notes"`
 	EvidenceCount       int             `json:"evidenceCount"`
 	EvidenceFiles       []string        `json:"evidenceFiles"`
@@ -117,6 +119,7 @@ func (s *Store) queryActionPlans(ctx context.Context, actor *User, whereClause s
 		       ap.create_date, ap.due_date, ap.progress_pct, COALESCE(ap.progress_notes,''),
 		       ap.close_date,
 		       COALESCE(u_v.full_name,''), ap.verified_at, COALESCE(ap.fulfillment_notes,''),
+		       COALESCE(g.return_notes,''), COALESCE(u_ret.full_name,''),
 		       (g.stage1_approved_at IS NOT NULL) AS stage1_approved,
 		       COALESCE(ga.dept_in_control_id = $1::int
 		         OR EXISTS (SELECT 1 FROM gap_analysis_dept gd WHERE gd.gap_analysis_id = ga.gap_analysis_id AND gd.department_id = $1::int)
@@ -130,6 +133,7 @@ func (s *Store) queryActionPlans(ctx context.Context, actor *User, whereClause s
 		LEFT JOIN users u_pic ON u_pic.user_id = ap.pic_user_id
 		LEFT JOIN department d ON d.department_id = ga.dept_in_control_id
 		LEFT JOIN users u_v ON u_v.user_id = ap.verified_by
+		LEFT JOIN users u_ret ON u_ret.user_id = g.returned_by
 		%s
 		ORDER BY %s`, whereClause, orderBy)
 
@@ -165,6 +169,7 @@ func (s *Store) queryActionPlans(ctx context.Context, actor *User, whereClause s
 			&item.CreateDate, &item.DueDate, &item.ProgressPct, &item.ProgressNotes,
 			&item.CloseDate,
 			&item.VerifiedByName, &item.VerifiedAt, &item.FulfillmentNotes,
+			&item.ReturnNotes, &item.ReturnedByName,
 			&stage1Approved, &matchesActorDept,
 		); err != nil {
 			return nil, err
@@ -185,7 +190,8 @@ func (s *Store) queryActionPlans(ctx context.Context, actor *User, whereClause s
 
 		if actor != nil {
 			isSameSite := actor.SiteID != nil && *actor.SiteID == item.SiteID
-			if actor.RoleCode == "PIC_AREA" && stage1Approved && item.WorkflowStatus == "EXECUTION" && isSameSite && matchesActorDept {
+			isAssignedPIC := item.PICUserID != nil && *item.PICUserID == actor.ID
+			if actor.RoleCode == "PIC_AREA" && stage1Approved && item.WorkflowStatus == "EXECUTION" && isSameSite && isAssignedPIC {
 				if item.ExecutionStatus == "IN_PROGRESS" {
 					item.CanUpdate = true
 				}
@@ -341,16 +347,17 @@ func verifyPICPlanAccessTx(ctx context.Context, tx pgx.Tx, actor *User, planID i
 		return
 	}
 	var gapAnalysisID int64
+	var picUserID *int
 	err = tx.QueryRow(ctx, `
 		SELECT ap.gap_analysis_id, ga.gap_id, g.gap_no, g.site_id, ap.create_date,
 		       g.workflow_status::text, (g.stage1_approved_at IS NOT NULL), COALESCE(ap.execution_status, 'IN_PROGRESS'),
-		       ap.due_date
+		       ap.due_date, ap.pic_user_id
 		FROM action_plan ap
 		JOIN gap_analysis ga ON ga.gap_analysis_id = ap.gap_analysis_id
 		JOIN gap_document g ON g.gap_id = ga.gap_id
 		WHERE ap.action_plan_id = $1
 		FOR UPDATE OF ap`, planID).Scan(
-		&gapAnalysisID, &gapID, &gapNo, &siteID, &createDate, &wfStatus, &stage1Approved, &execStatus, &dueDate)
+		&gapAnalysisID, &gapID, &gapNo, &siteID, &createDate, &wfStatus, &stage1Approved, &execStatus, &dueDate, &picUserID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			err = httpx.NewError(http.StatusNotFound, "NOT_FOUND", "Action plan tidak ditemukan.")
@@ -367,6 +374,12 @@ func verifyPICPlanAccessTx(ctx context.Context, tx pgx.Tx, actor *User, planID i
 	if actor.SiteID == nil || *actor.SiteID != siteID || actor.DepartmentID == nil {
 		err = httpx.NewError(http.StatusForbidden, "FORBIDDEN",
 			"PIC hanya dapat mengupdate klausul departemen dan site-nya sendiri.")
+		return
+	}
+
+	if picUserID != nil && *picUserID != actor.ID {
+		err = httpx.NewError(http.StatusForbidden, "FORBIDDEN",
+			"Hanya PIC Area yang ditugaskan (assigned) pada Action Plan ini yang berhak mengupdate progress.")
 		return
 	}
 
@@ -499,16 +512,14 @@ func (s *Store) VerifyActionPlanSupervisor(ctx context.Context, actor *User, pla
 	if actor == nil || actor.RoleCode != "CO_GAP_SUPERVISOR" {
 		return nil, httpx.NewError(http.StatusForbidden, "FORBIDDEN", "Hanya Co Gap Supervisor yang dapat memverifikasi penyelesaian Action Plan dan menentukan status klausul.")
 	}
-	trimmedNotes := strings.TrimSpace(notes)
-	if !approve && trimmedNotes == "" {
-		return nil, httpx.NewError(http.StatusBadRequest, "NOTES_REQUIRED", "Catatan pengembalian wajib diisi jika mengembalikan Action Plan ke PIC Area.")
+	if !approve {
+		return nil, httpx.NewError(http.StatusBadRequest, "RETURN_NOT_ALLOWED", "Tahap verifikasi eksekusi oleh Supervisor tidak dapat melakukan penolakan/return. Penolakan revisi hanya dapat dilakukan pada tahap Approval Stage 2.")
 	}
-	if approve {
-		switch clauseStatus {
-		case "100", "50", "0", "NA":
-		default:
-			return nil, httpx.NewError(http.StatusBadRequest, "INVALID_CLAUSE_STATUS", "Supervisor wajib menentukan status klausul: 100, 50, 0, atau NA.")
-		}
+	trimmedNotes := strings.TrimSpace(notes)
+	switch clauseStatus {
+	case "100", "50", "0", "NA":
+	default:
+		return nil, httpx.NewError(http.StatusBadRequest, "INVALID_CLAUSE_STATUS", "Supervisor wajib menentukan status klausul: 100, 50, 0, atau NA.")
 	}
 
 	var res VerifyActionPlanResult

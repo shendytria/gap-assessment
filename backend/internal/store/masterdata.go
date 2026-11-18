@@ -2,10 +2,39 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
+
+type FlexibleTime struct {
+	time.Time
+}
+
+func (ft *FlexibleTime) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), "\"")
+	if s == "" || s == "null" {
+		return nil
+	}
+	// Try RFC3339
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		ft.Time = t
+		return nil
+	}
+	// Try ISO with millis
+	if t, err := time.Parse("2006-01-02T15:04:05.000Z07:00", s); err == nil {
+		ft.Time = t
+		return nil
+	}
+	// Try YYYY-MM-DD
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		ft.Time = t
+		return nil
+	}
+	return fmt.Errorf("cannot parse time: %s", s)
+}
 
 type Site struct {
 	ID        int       `json:"id"`
@@ -62,8 +91,9 @@ type UserSummary struct {
 
 type Delegation struct {
 	ID             int64      `json:"id"`
-	GapID          int        `json:"gapId"`
+	GapID          *int       `json:"gapId"`
 	GapNo          string     `json:"gapNo"`
+	SiteID         int        `json:"siteId"`
 	SiteCode       string     `json:"siteCode"`
 	RoleID         int        `json:"roleId"`
 	RoleCode       string     `json:"roleCode"`
@@ -73,10 +103,13 @@ type Delegation struct {
 	OriginalName   string     `json:"principalName"`
 	DelegateUserID int        `json:"delegateUserId"`
 	DelegateName   string     `json:"delegateName"`
+	StartDate      time.Time  `json:"startDate"`
+	EndedAt        *time.Time `json:"endDate"`
+	Reason         string     `json:"reason"`
 	IsActive       bool       `json:"isActive"`
+	IsRevoked      bool       `json:"isRevoked"`
 	CreatedByName  string     `json:"createdByName"`
 	CreatedAt      time.Time  `json:"createdAt"`
-	EndedAt        *time.Time `json:"endDate"`
 }
 
 // ------------------------------------------------ Sites & Categories & Roles
@@ -265,29 +298,33 @@ func (s *Store) UpdateUserAdmin(ctx context.Context, actorUserID int, req Update
 // ------------------------------------------------ Delegations (URS 011D)
 
 type CreateDelegationReq struct {
-	GapID          int        `json:"gapId"`
-	RoleID         int        `json:"roleId"`
-	DepartmentID   *int       `json:"departmentId"`
-	OriginalUserID int        `json:"principalUserId"`
-	DelegateUserID int        `json:"delegateUserId"`
-	EndedAt        *time.Time `json:"endDate"`
+	GapID          *int          `json:"gapId"`
+	SiteID         *int          `json:"siteId"`
+	RoleID         int           `json:"roleId"`
+	DepartmentID   *int          `json:"departmentId"`
+	OriginalUserID int           `json:"principalUserId"`
+	DelegateUserID int           `json:"delegateUserId"`
+	StartDate      *FlexibleTime `json:"startDate"`
+	EndedAt        *FlexibleTime `json:"endDate"`
+	Reason         string        `json:"reason"`
 }
 
 func (s *Store) ListDelegations(ctx context.Context, siteID *int) ([]Delegation, error) {
 	query := `
-		SELECT dl.delegation_id, dl.gap_id, g.gap_no, s.site_code,
-		       dl.role_id, r.role_code, dl.department_id, COALESCE(d.department_code,''),
+		SELECT dl.delegation_id, dl.gap_id, COALESCE(g.gap_no, ''), COALESCE(s.site_id, 0), COALESCE(s.site_code, ''),
+		       dl.role_id, r.role_code, dl.department_id, COALESCE(d.department_code, ''),
 		       dl.original_user_id, u1.full_name, dl.delegate_user_id, u2.full_name,
-		       dl.is_active, u3.full_name, dl.created_at, dl.ended_at
+		       COALESCE(dl.start_date, dl.created_at), dl.ended_at, COALESCE(dl.reason, ''),
+		       dl.is_active, u3.full_name, dl.created_at
 		FROM delegation dl
-		JOIN gap_document g ON g.gap_id = dl.gap_id
-		JOIN site s ON s.site_id = g.site_id
-		JOIN role r ON r.role_id = dl.role_id
-		LEFT JOIN department d ON d.department_id = dl.department_id
+		LEFT JOIN gap_document g ON g.gap_id = dl.gap_id
 		JOIN users u1 ON u1.user_id = dl.original_user_id
 		JOIN users u2 ON u2.user_id = dl.delegate_user_id
 		JOIN users u3 ON u3.user_id = dl.created_by
-		WHERE ($1::smallint IS NULL OR g.site_id = $1::smallint)
+		JOIN role r ON r.role_id = dl.role_id
+		LEFT JOIN department d ON d.department_id = COALESCE(dl.department_id, u1.department_id)
+		LEFT JOIN site s ON s.site_id = COALESCE(dl.site_id, g.site_id, u1.site_id)
+		WHERE ($1::smallint IS NULL OR s.site_id = $1::smallint)
 		ORDER BY dl.created_at DESC`
 	rows, err := s.Pool.Query(ctx, query, siteID)
 	if err != nil {
@@ -297,12 +334,16 @@ func (s *Store) ListDelegations(ctx context.Context, siteID *int) ([]Delegation,
 	out := []Delegation{}
 	for rows.Next() {
 		var item Delegation
-		if err := rows.Scan(&item.ID, &item.GapID, &item.GapNo, &item.SiteCode,
+		if err := rows.Scan(
+			&item.ID, &item.GapID, &item.GapNo, &item.SiteID, &item.SiteCode,
 			&item.RoleID, &item.RoleCode, &item.DepartmentID, &item.DepartmentCode,
 			&item.OriginalUserID, &item.OriginalName, &item.DelegateUserID, &item.DelegateName,
-			&item.IsActive, &item.CreatedByName, &item.CreatedAt, &item.EndedAt); err != nil {
+			&item.StartDate, &item.EndedAt, &item.Reason,
+			&item.IsActive, &item.CreatedByName, &item.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
+		item.IsRevoked = !item.IsActive
 		out = append(out, item)
 	}
 	return out, rows.Err()
@@ -311,12 +352,35 @@ func (s *Store) ListDelegations(ctx context.Context, siteID *int) ([]Delegation,
 func (s *Store) CreateDelegation(ctx context.Context, actorUserID int, req CreateDelegationReq) (int64, error) {
 	var id int64
 	err := s.WithTx(ctx, actorUserID, func(tx pgx.Tx) error {
+		var deptID *int = req.DepartmentID
+		var siteID *int = req.SiteID
+		if deptID == nil || siteID == nil {
+			var uDept *int
+			var uSite *int
+			_ = tx.QueryRow(ctx, `SELECT department_id, site_id FROM users WHERE user_id = $1`, req.OriginalUserID).Scan(&uDept, &uSite)
+			if deptID == nil {
+				deptID = uDept
+			}
+			if siteID == nil {
+				siteID = uSite
+			}
+		}
+
+		startDate := time.Now()
+		if req.StartDate != nil && !req.StartDate.IsZero() {
+			startDate = req.StartDate.Time
+		}
+		var endedAt *time.Time
+		if req.EndedAt != nil && !req.EndedAt.IsZero() {
+			endedAt = &req.EndedAt.Time
+		}
+
 		return tx.QueryRow(ctx, `
-			INSERT INTO delegation (gap_id, role_id, department_id, original_user_id, delegate_user_id, created_by, ended_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO delegation (gap_id, site_id, role_id, department_id, original_user_id, delegate_user_id, created_by, start_date, ended_at, reason)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			RETURNING delegation_id`,
-			req.GapID, req.RoleID, req.DepartmentID, req.OriginalUserID, req.DelegateUserID,
-			actorUserID, req.EndedAt).Scan(&id)
+			req.GapID, siteID, req.RoleID, deptID, req.OriginalUserID, req.DelegateUserID,
+			actorUserID, startDate, endedAt, strings.TrimSpace(req.Reason)).Scan(&id)
 	})
 	return id, err
 }

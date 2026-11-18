@@ -64,6 +64,8 @@ type ActionPlanItem = {
   verifiedByName: string;
   verifiedAt: string | null;
   fulfillmentNotes: string;
+  returnNotes?: string;
+  returnedByName?: string;
   notes: string;
   evidenceCount: number;
   evidences: EvidenceItem[];
@@ -271,11 +273,6 @@ export default function ExecutionPage() {
     if (!verifyPlan) return;
     setVerifyErr(null);
 
-    if (verifyDecision === "RETURN" && !verifyNotes.trim()) {
-      setVerifyErr("Notes for return is required if returning Action Plan to PIC Area.");
-      return;
-    }
-
     setVerifying(true);
     try {
       const res = await api<{ enteredStage2: boolean; gapNo: string }>(
@@ -283,8 +280,8 @@ export default function ExecutionPage() {
         {
           method: "POST",
           body: {
-            approve: verifyDecision === "APPROVE",
-            clauseStatus: verifyDecision === "APPROVE" ? verifyClauseStatus : verifyPlan.clauseStatus,
+            approve: true,
+            clauseStatus: verifyClauseStatus,
             notes: verifyNotes.trim(),
           },
         }
@@ -292,12 +289,9 @@ export default function ExecutionPage() {
       setVerifyPlan(null);
       setToast({
         type: "ok",
-        text:
-          verifyDecision === "RETURN"
-            ? "Action Plan returned to PIC Area for revision."
-            : res?.enteredStage2
-            ? `Action Plan verified and document ${res.gapNo} entered Approval Stage 2.`
-            : "Action Plan verified successfully.",
+        text: res?.enteredStage2
+          ? `Action Plan terverifikasi dan seluruh rencana selesai. Dokumen ${res.gapNo} resmi memasuki Approval Stage 2.`
+          : "Action Plan berhasil diverifikasi oleh Supervisor.",
       });
       loadPlans();
     } catch (err: any) {
@@ -502,6 +496,15 @@ export default function ExecutionPage() {
                         {p.gapNo}
                       </Link>
                       <div className="muted" style={{ fontSize: "0.72rem" }}>{p.workflowStatus}</div>
+                      {p.returnNotes && (
+                        <div
+                          className="badge badge-err"
+                          style={{ fontSize: "0.68rem", marginTop: "0.2rem", cursor: "help", whiteSpace: "nowrap" }}
+                          title={`Penolakan Stage 2: ${p.returnNotes}`}
+                        >
+                          Stage 2 Rejected
+                        </div>
+                      )}
                     </td>
                     <td>
                       <strong>{p.clauseNo}</strong>
@@ -597,8 +600,12 @@ export default function ExecutionPage() {
                           </button>
                         )}
                         {!p.canUpdate && me?.user.role === "PIC_AREA" && p.executionStatus === "IN_PROGRESS" && (
-                          <span className="muted small" title="PIC can only update clauses of their own department">
-                            Other Dept
+                          <span
+                            className="badge badge-gray"
+                            style={{ fontSize: "0.72rem" }}
+                            title={`Tugas ini diberikan kepada ${p.picName || "PIC lain"}`}
+                          >
+                            {p.picName ? `PIC: ${p.picName}` : "Other PIC"}
                           </span>
                         )}
                         {p.canVerify && (
@@ -643,6 +650,32 @@ export default function ExecutionPage() {
             </div>
 
             {error && <div className="alert alert-error">{error}</div>}
+
+            {selectedPlan.returnNotes && (
+              <div
+                style={{
+                  padding: "0.75rem 1rem",
+                  background: "#fef2f2",
+                  border: "1px solid #fee2e2",
+                  borderRadius: "8px",
+                  marginBottom: "1rem",
+                  fontSize: "0.85rem",
+                  color: "#991b1b",
+                }}
+              >
+                <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  Catatan Penolakan Stage 2 {selectedPlan.returnedByName ? `oleh ${selectedPlan.returnedByName}` : ""}:
+                </div>
+                <div style={{ marginTop: "0.25rem", fontStyle: "italic", lineHeight: 1.4 }}>
+                  &ldquo;{selectedPlan.returnNotes}&rdquo;
+                </div>
+              </div>
+            )}
 
             <div style={{ padding: "0.75rem", background: "var(--surface-2)", borderRadius: "8px", marginBottom: "1rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
@@ -890,55 +923,36 @@ export default function ExecutionPage() {
 
             <form onSubmit={handleVerifySubmit}>
               <div className="field">
-                <label htmlFor="verifyDecision">
-                  Verification Decision <span style={{ color: "#c52a2a" }}>*</span>
+                <label htmlFor="verifyClauseStatus">
+                  Final Compliance Status <span style={{ color: "#c52a2a" }}>*</span>
                 </label>
                 <select
-                  id="verifyDecision"
+                  id="verifyClauseStatus"
                   className="filter-select"
                   style={{ width: "100%" }}
-                  value={verifyDecision}
-                  onChange={(e) => setVerifyDecision(e.target.value as "APPROVE" | "RETURN")}
+                  value={verifyClauseStatus}
+                  onChange={(e) => setVerifyClauseStatus(e.target.value as "100" | "50" | "0" | "NA")}
                 >
-                  <option value="APPROVE">Verify & Advance to Stage 2</option>
-                  <option value="RETURN">Return to PIC Area for Revision</option>
+                  <option value="100">100% — Comply</option>
+                  <option value="50">50% — Partially Comply</option>
+                  <option value="0">0% — Not Comply</option>
+                  <option value="NA">N/A — Not Applicable</option>
                 </select>
+                <p className="muted small" style={{ margin: "0.25rem 0 0" }}>
+                  Tentukan persentase kepatuhan final berdasarkan bukti pemenuhan yang telah dievaluasi.
+                </p>
               </div>
-
-              {verifyDecision === "APPROVE" && (
-                <div className="field">
-                  <label htmlFor="verifyClauseStatus">
-                    Final Compliance Status <span style={{ color: "#c52a2a" }}>*</span>
-                  </label>
-                  <select
-                    id="verifyClauseStatus"
-                    className="filter-select"
-                    style={{ width: "100%" }}
-                    value={verifyClauseStatus}
-                    onChange={(e) => setVerifyClauseStatus(e.target.value as "100" | "50" | "0" | "NA")}
-                  >
-                    <option value="100">100% — Comply</option>
-                    <option value="50">50% — Partially Comply</option>
-                    <option value="0">0% — Not Comply</option>
-                    <option value="NA">N/A — Not Applicable</option>
-                  </select>
-                </div>
-              )}
 
               <div className="field">
                 <label htmlFor="verifyNotes">
-                  Verification Notes {verifyDecision === "RETURN" && <span style={{ color: "#c52a2a" }}>*</span>}
+                  Supervisor Verification Notes (Optional)
                 </label>
                 <textarea
                   id="verifyNotes"
                   rows={3}
                   className="filter-input"
                   style={{ width: "100%", height: "auto" }}
-                  placeholder={
-                    verifyDecision === "RETURN"
-                      ? "State the issues that must be corrected by the PIC Area..."
-                      : "Supervisor verification notes (optional)..."
-                  }
+                  placeholder="Catatan verifikasi supervisor..."
                   value={verifyNotes}
                   onChange={(e) => setVerifyNotes(e.target.value)}
                 />
@@ -949,11 +963,7 @@ export default function ExecutionPage() {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={verifying}>
-                  {verifying
-                    ? "Processing..."
-                    : verifyDecision === "APPROVE"
-                    ? "Verify & Advance to Stage 2"
-                    : "Return to PIC Area"}
+                  {verifying ? "Memverifikasi..." : "Verify & Advance to Stage 2"}
                 </button>
               </div>
             </form>

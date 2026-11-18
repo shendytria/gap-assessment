@@ -32,6 +32,10 @@ type CreateRegulationReq struct {
 	ReadMode             string        `json:"readMode"` // AUTO, MANUAL
 	SiteIDs              []int         `json:"siteIds"`  // CKR, PLG, PLM (creates gap doc per site)
 	Clauses              []ClauseInput `json:"clauses"`
+	ChangePoints         *string       `json:"changePoints"`
+	NewCount             *int          `json:"newCount"`
+	ChangedCount         *int          `json:"changedCount"`
+	DeletedCount         *int          `json:"deletedCount"`
 }
 
 type RegulationCreatedResult struct {
@@ -296,11 +300,31 @@ func (s *Store) CreateRegulationWithGapDocs(ctx context.Context, actorUserID int
 				return fmt.Errorf("insert master list item: %w", err)
 			}
 
-			// Insert change_note (007E)
+			// Insert change_note (007E / 006E)
+			cpText := "Dokumen baru"
+			newCnt := len(createdClauses)
+			chgCnt := 0
+			delCnt := 0
+			if req.DocStatus == "REVISION" {
+				if req.ChangePoints != nil && strings.TrimSpace(*req.ChangePoints) != "" {
+					cpText = strings.TrimSpace(*req.ChangePoints)
+				} else {
+					cpText = "Revisi regulasi"
+				}
+				if req.NewCount != nil {
+					newCnt = *req.NewCount
+				}
+				if req.ChangedCount != nil {
+					chgCnt = *req.ChangedCount
+				}
+				if req.DeletedCount != nil {
+					delCnt = *req.DeletedCount
+				}
+			}
 			_, _ = tx.Exec(ctx, `
 				INSERT INTO change_note (gap_id, new_count, changed_count, deleted_count, change_points, edited_by)
-				VALUES ($1, $2, 0, 0, 'Dokumen baru', $3)`,
-				gapID, len(createdClauses), actorUserID)
+				VALUES ($1, $2, $3, $4, $5, $6)`,
+				gapID, newCnt, chgCnt, delCnt, cpText, actorUserID)
 
 			// Insert gap_analysis row for each clause
 			for _, cc := range createdClauses {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { useSession } from "@/lib/session";
 import ApprovedStamp from "@/components/reports/ApprovedStamp";
 
 type ApprovalTask = {
@@ -30,6 +31,7 @@ type ApprovalTask = {
 };
 
 export default function ApprovalsPage() {
+  const { me } = useSession() || {};
   const [tasks, setTasks] = useState<ApprovalTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"pending" | "all">("pending");
@@ -133,7 +135,7 @@ export default function ApprovalsPage() {
               <th>Legal Number & Title</th>
               <th>Site</th>
               {activeTab === "all" && <th>Round</th>}
-              <th>Role / Dept</th>
+              <th>Approval Step & Role</th>
               <th>Assigned To</th>
               <th>Result</th>
               {activeTab === "all" && <th>Notes</th>}
@@ -192,12 +194,26 @@ export default function ApprovalsPage() {
                       </td>
                     )}
                     <td>
-                      <div>{t.roleName}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
+                        <span className="badge badge-info" style={{ fontSize: "0.72rem", padding: "0.15rem 0.4rem" }}>
+                          Step {t.stepSeq}
+                        </span>
+                        <strong style={{ fontSize: "0.85rem" }}>{t.roleName}</strong>
+                      </div>
                       {t.departmentCode && (
-                        <span className="badge badge-gray">{t.departmentCode}</span>
+                        <span className="badge badge-gray" style={{ marginTop: "0.2rem", fontSize: "0.72rem" }}>
+                          Dept: {t.departmentCode}
+                        </span>
                       )}
                     </td>
-                    <td>{t.assignedUserName}</td>
+                    <td>
+                      <div>{t.assignedUserName}</div>
+                      {me?.user && me.user.id !== t.assignedUserId && t.canAct && t.result === "PENDING" && (
+                        <span className="badge badge-info" style={{ fontSize: "0.7rem", marginTop: "0.2rem" }}>
+                          Delegated to you
+                        </span>
+                      )}
+                    </td>
                     <td>
                       <span className={`badge ${resBadge}`}>{t.result}</span>
                     </td>
@@ -280,7 +296,14 @@ export default function ApprovalsPage() {
                   <strong>{selectedTask.gapNo}</strong> — {selectedTask.stage}
                 </div>
                 <div className="muted small">{selectedTask.regulationTitle}</div>
-                <div className="muted small">Acting as: {selectedTask.roleName}</div>
+                <div className="muted small">
+                  Acting as: {selectedTask.roleName}
+                  {me?.user && me.user.id !== selectedTask.assignedUserId && (
+                    <span style={{ color: "var(--info-text)", marginLeft: "0.4rem", fontWeight: 600 }}>
+                      (on behalf of {selectedTask.assignedUserName})
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="field">

@@ -53,7 +53,13 @@ func (s *Store) ListApprovals(ctx context.Context, userID int, onlyPending bool)
 		           ) THEN 'WAITING'
 		           ELSE a.result::text
 		       END AS display_result,
-		       COALESCE(a.notes,''), COALESCE(u_act.full_name,''), a.acted_at, a.created_at,
+		       COALESCE(a.notes,''),
+		       CASE
+		           WHEN a.on_behalf_of_user_id IS NOT NULL AND u_obo.full_name IS NOT NULL
+		           THEN u_act.full_name || ' (on behalf of ' || u_obo.full_name || ')'
+		           ELSE COALESCE(u_act.full_name, '')
+		       END AS acted_by_name,
+		       a.acted_at, a.created_at,
 		       (a.result = 'PENDING'
 		        AND g.workflow_status <> 'ARCHIVED'
 		        AND (a.assigned_user_id = $1 OR dl.delegate_user_id IS NOT NULL)
@@ -75,9 +81,11 @@ func (s *Store) ListApprovals(ctx context.Context, userID int, onlyPending bool)
 		LEFT JOIN department d ON d.department_id = a.department_id
 		JOIN users u_as ON u_as.user_id = a.assigned_user_id
 		LEFT JOIN users u_act ON u_act.user_id = a.acted_by_user_id
+		LEFT JOIN users u_obo ON u_obo.user_id = a.on_behalf_of_user_id
 		LEFT JOIN delegation dl ON dl.original_user_id = a.assigned_user_id
 		                        AND dl.delegate_user_id = $1
 		                        AND dl.is_active = TRUE
+		                        AND (dl.start_date IS NULL OR dl.start_date::date <= CURRENT_DATE)
 		                        AND (dl.ended_at IS NULL OR dl.ended_at >= now())
 		WHERE ($2 = FALSE OR (
 		    a.result = 'PENDING'
@@ -93,7 +101,7 @@ func (s *Store) ListApprovals(ctx context.Context, userID int, onlyPending bool)
 		          AND prev.result <> 'SKIPPED'
 		    )
 		))
-		ORDER BY a.created_at DESC`
+		ORDER BY g.gap_id DESC, a.cycle_no DESC, (CASE WHEN a.stage = 'STAGE1' THEN 1 ELSE 2 END) ASC, a.step_seq ASC, a.role_id ASC, a.approval_id ASC`
 	rows, err := s.Pool.Query(ctx, query, userID, onlyPending)
 	if err != nil {
 		return []ApprovalTask{}, err
@@ -155,7 +163,9 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 			_ = tx.QueryRow(ctx, `
 				SELECT TRUE FROM delegation
 				WHERE original_user_id = $1 AND delegate_user_id = $2
-				  AND is_active = TRUE AND (ended_at IS NULL OR ended_at >= now()) LIMIT 1`, assignedUID, actorUserID).Scan(&isDelegate)
+				  AND is_active = TRUE
+				  AND (start_date IS NULL OR start_date::date <= CURRENT_DATE)
+				  AND (ended_at IS NULL OR ended_at >= now()) LIMIT 1`, assignedUID, actorUserID).Scan(&isDelegate)
 			if !isDelegate {
 				return fmt.Errorf("unauthorized to approve on behalf of user %d", assignedUID)
 			}
@@ -203,6 +213,15 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 					FROM action_plan ap
 					JOIN gap_analysis ga ON ga.gap_analysis_id = ap.gap_analysis_id
 					WHERE ev.action_plan_id = ap.action_plan_id AND ga.gap_id = $1 AND ev.is_superseded = FALSE`, gapID)
+				// Reset gap_analysis.status back to proposed_status (or 50%/0%) so it is no longer 100% after rejection
+				_, _ = tx.Exec(ctx, `
+					UPDATE gap_analysis ga
+					SET status = COALESCE(ga.proposed_status,
+					    CASE WHEN ga.in_procedure = FALSE AND ga.in_practice = FALSE THEN '0'::gap_status ELSE '50'::gap_status END),
+					    verification_notes = NULL,
+					    verified_by = NULL,
+					    verified_at = NULL
+					WHERE ga.gap_id = $1 AND ga.is_applicable = TRUE`, gapID)
 			}
 			_, _ = tx.Exec(ctx, `
 				UPDATE approval
@@ -291,12 +310,7 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 						    return_notes = NULL, returned_at = NULL, returned_by = NULL
 						WHERE gap_id = $1`, gapID)
 					if gapNo != "" {
-						_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "GAP_CLOSED", &gapID, nil,
-							fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo),
-							fmt.Sprintf("Dokumen %s telah selesai (CLOSED). Periksa apakah ada regulasi baru atau revisi yang perlu didaftarkan.", gapNo))
-						_ = notifyStaffForSiteTx(ctx, tx, docSiteID, "GAP_CLOSED", &gapID,
-							fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo),
-							fmt.Sprintf("Dokumen %s telah selesai (CLOSED).", gapNo))
+						_ = notifyAllStakeholdersClosedTx(ctx, tx, gapID, gapNo, docSiteID)
 					}
 				}
 			} else if stage == "STAGE2" {
@@ -306,12 +320,7 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 					    return_notes = NULL, returned_at = NULL, returned_by = NULL
 					WHERE gap_id = $1`, gapID)
 				if gapNo != "" {
-					_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "GAP_CLOSED", &gapID, nil,
-						fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo),
-						fmt.Sprintf("Dokumen %s telah selesai (CLOSED). Periksa apakah ada regulasi baru atau revisi yang perlu didaftarkan.", gapNo))
-					_ = notifyStaffForSiteTx(ctx, tx, docSiteID, "GAP_CLOSED", &gapID,
-						fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo),
-						fmt.Sprintf("Dokumen %s telah selesai (CLOSED).", gapNo))
+					_ = notifyAllStakeholdersClosedTx(ctx, tx, gapID, gapNo, docSiteID)
 				}
 			}
 		} else {
@@ -328,16 +337,25 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 				        AND prev.step_seq < a.step_seq AND prev.result <> 'APPROVED' AND prev.result <> 'SKIPPED'
 				  )`, gapID, stage, cycle)
 			if errNext == nil && gapNo != "" {
+				type nextApprover struct {
+					uid      int
+					roleName string
+				}
+				var nextApprovers []nextApprover
 				for rowsNext.Next() {
 					var nextUID int
 					var nextRoleName string
 					if rowsNext.Scan(&nextUID, &nextRoleName) == nil {
-						_ = insertNotificationTx(ctx, tx, "APPROVAL_PENDING", nextUID, &gapID, nil,
-							fmt.Sprintf("[%s] Menunggu Approval %s", gapNo, stage),
-							fmt.Sprintf("Dokumen %s menunggu tanda tangan/approval Anda pada tahap %s (%s).", gapNo, stage, nextRoleName))
+						nextApprovers = append(nextApprovers, nextApprover{nextUID, nextRoleName})
 					}
 				}
 				rowsNext.Close()
+
+				for _, na := range nextApprovers {
+					_ = insertNotificationTx(ctx, tx, "APPROVAL_PENDING", na.uid, &gapID, nil,
+						fmt.Sprintf("[%s] Menunggu Approval %s", gapNo, stage),
+						fmt.Sprintf("Dokumen %s menunggu tanda tangan/approval Anda pada tahap %s (%s).", gapNo, stage, na.roleName))
+				}
 			}
 		}
 

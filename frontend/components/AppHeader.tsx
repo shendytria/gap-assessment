@@ -18,7 +18,7 @@ type AppNotification = {
 };
 
 export default function AppHeader() {
-  const { me, logout } = useSession();
+  const { me } = useSession();
   const router = useRouter();
 
   const [notifs, setNotifs] = useState<AppNotification[]>([]);
@@ -102,11 +102,6 @@ export default function AppHeader() {
     const nowIso = new Date().toISOString();
     setNotifs((prev) => prev.map((x) => ({ ...x, readAt: x.readAt || nowIso })));
     setUnreadCount(0);
-  };
-
-  const onLogout = async () => {
-    await logout();
-    router.replace("/login");
   };
 
   const userInitials =
@@ -311,21 +306,6 @@ export default function AppHeader() {
                   </svg>
                   <span>Change Password</span>
                 </Link>
-
-                <div className="user-dropdown-divider" />
-
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="user-dropdown-item user-dropdown-item-danger"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                    <polyline points="16 17 21 12 16 7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                  </svg>
-                  <span>Log out</span>
-                </button>
               </div>
             </div>
           )}

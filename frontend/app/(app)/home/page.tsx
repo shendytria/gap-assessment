@@ -110,7 +110,7 @@ export default function HomePage() {
     <main className="page">
       <div className="toolbar" style={{ alignItems: "flex-start", marginBottom: "1.5rem" }}>
         <div>
-          <h1 className="page-title">Compliance Dashboard</h1>
+          <h1 className="page-title">Dashboard</h1>
           <p className="muted" style={{ margin: "0.2rem 0 0" }}>
             Real-time compliance monitoring across Cikarang, Pulogadung, and Pulomas sites.
           </p>

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -54,6 +55,67 @@ func notifySupervisorsForSiteTx(ctx context.Context, tx pgx.Tx, siteID int, even
 		if err := insertNotificationTx(ctx, tx, eventType, uid, gapID, actionPlanID, subject, body); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// notifyAllStakeholdersClosedTx sends notifications to all parties involved in the gap document when CLOSED
+func notifyAllStakeholdersClosedTx(ctx context.Context, tx pgx.Tx, gapID int, gapNo string, siteID int) error {
+	subject := fmt.Sprintf("[%s] Gap Closed (100%% Compliant)", gapNo)
+	body := fmt.Sprintf("Dokumen Gap Analysis %s telah resmi berstatus CLOSED setelah seluruh pemenuhan klausul dan persetujuan selesai.", gapNo)
+
+	userIDs := make(map[int]bool)
+
+	// 1. All Supervisors and Staff for this site
+	rolesRows, err := tx.Query(ctx, `
+		SELECT u.user_id
+		FROM users u
+		JOIN role r ON r.role_id = u.role_id
+		WHERE u.is_active = TRUE AND u.site_id = $1
+		  AND r.role_code IN ('CO_GAP_SUPERVISOR', 'CO_GAP_STAFF')`, siteID)
+	if err == nil {
+		for rolesRows.Next() {
+			var uid int
+			if rolesRows.Scan(&uid) == nil {
+				userIDs[uid] = true
+			}
+		}
+		rolesRows.Close()
+	}
+
+	// 2. All PICs assigned to action plans of this gap
+	picRows, err := tx.Query(ctx, `
+		SELECT DISTINCT ap.pic_user_id
+		FROM action_plan ap
+		JOIN gap_analysis ga ON ga.gap_analysis_id = ap.gap_analysis_id
+		WHERE ga.gap_id = $1 AND ap.pic_user_id IS NOT NULL`, gapID)
+	if err == nil {
+		for picRows.Next() {
+			var uid int
+			if picRows.Scan(&uid) == nil {
+				userIDs[uid] = true
+			}
+		}
+		picRows.Close()
+	}
+
+	// 3. All approvers assigned or who acted on approvals for this gap
+	appRows, err := tx.Query(ctx, `
+		SELECT DISTINCT assigned_user_id FROM approval WHERE gap_id = $1
+		UNION
+		SELECT DISTINCT acted_by_user_id FROM approval WHERE gap_id = $1 AND acted_by_user_id IS NOT NULL`, gapID)
+	if err == nil {
+		for appRows.Next() {
+			var uid int
+			if appRows.Scan(&uid) == nil {
+				userIDs[uid] = true
+			}
+		}
+		appRows.Close()
+	}
+
+	for uid := range userIDs {
+		_ = insertNotificationTx(ctx, tx, "GAP_CLOSED", uid, &gapID, nil, subject, body)
 	}
 	return nil
 }

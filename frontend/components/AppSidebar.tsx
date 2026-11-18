@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession } from "@/lib/session";
 
 export default function AppSidebar({ minimal = false }: { minimal?: boolean }) {
-  const { me } = useSession();
+  const { me, logout } = useSession();
   const pathname = usePathname();
 
   if (!me) return null;
@@ -145,6 +145,50 @@ export default function AppSidebar({ minimal = false }: { minimal?: boolean }) {
           </ul>
         </nav>
       )}
+
+      {/* Direct Logout Button */}
+      <div style={{ padding: "0.5rem 0.75rem", borderTop: "1px solid var(--border-color, #e5e7eb)" }}>
+        <button
+          type="button"
+          onClick={() => logout()}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.625rem",
+            width: "100%",
+            padding: "0.55rem 0.85rem",
+            borderRadius: "0.5rem",
+            border: "1px solid #fee2e2",
+            background: "#fff5f5",
+            color: "#dc2626",
+            fontSize: "0.85rem",
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#fee2e2";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "#fff5f5";
+          }}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ width: 17, height: 17 }}
+          >
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+          <span>Logout</span>
+        </button>
+      </div>
 
       {/* Minimal clean footer */}
       <div className="sidebar-footer-minimal">

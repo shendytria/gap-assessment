@@ -109,11 +109,19 @@ type ApprovalSignatureItem struct {
 	SignatureMeaning   string     `json:"signatureMeaning"`
 }
 
+type SisterGapDoc struct {
+	GapID    int    `json:"gapId"`
+	GapNo    string `json:"gapNo"`
+	SiteCode string `json:"siteCode"`
+	SiteName string `json:"siteName"`
+}
+
 type GapDocumentDetail struct {
 	GapDocSummary
 	Clauses            []GapAnalysisRow        `json:"clauses"`
 	ChangeNotes        []ChangeNoteItem        `json:"changeNotes"`
 	Approvals          []ApprovalSignatureItem `json:"approvals"`
+	OtherSites         []SisterGapDoc          `json:"otherSites"`
 	VerifiedByName     string                  `json:"verifiedByName"`
 	VerifiedByInitials string                  `json:"verifiedByInitials"`
 	VerifiedAt         *time.Time              `json:"verifiedAt"`
@@ -442,6 +450,24 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 		JOIN users u ON u.user_id = ga.verified_by
 		WHERE ga.gap_id = $1 AND ga.verified_by IS NOT NULL
 		LIMIT 1`, gapID).Scan(&d.VerifiedByName, &d.VerifiedByInitials, &d.VerifiedAt)
+
+	// Sister gap documents for other sites under the same regulation (multi-site)
+	d.OtherSites = []SisterGapDoc{}
+	sisterRows, err := s.Pool.Query(ctx, `
+		SELECT g.gap_id, g.gap_no, s.site_code, s.site_name
+		FROM gap_document g
+		JOIN site s ON s.site_id = g.site_id
+		WHERE g.regulation_id = $1 AND g.gap_id <> $2 AND g.workflow_status <> 'ARCHIVED'
+		ORDER BY s.site_code ASC`, d.RegulationID, d.GapID)
+	if err == nil {
+		for sisterRows.Next() {
+			var sg SisterGapDoc
+			if sisterRows.Scan(&sg.GapID, &sg.GapNo, &sg.SiteCode, &sg.SiteName) == nil {
+				d.OtherSites = append(d.OtherSites, sg)
+			}
+		}
+		sisterRows.Close()
+	}
 
 	return &d, rows.Err()
 }

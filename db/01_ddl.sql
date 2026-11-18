@@ -471,18 +471,21 @@ CREATE INDEX ix_approval_inbox    ON approval (assigned_user_id) WHERE result = 
 
 CREATE TABLE delegation (                  -- 011D
     delegation_id      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    gap_id             INT NOT NULL REFERENCES gap_document(gap_id),
+    gap_id             INT REFERENCES gap_document(gap_id),
+    site_id            SMALLINT REFERENCES site(site_id),
     role_id            SMALLINT NOT NULL REFERENCES role(role_id),         -- PIC Area, Manager Area, Co Gap Manager, QA Manager, QO Head
     department_id      INT REFERENCES department(department_id),
     original_user_id   INT NOT NULL REFERENCES users(user_id),
     delegate_user_id   INT NOT NULL REFERENCES users(user_id),
+    start_date         TIMESTAMPTZ NOT NULL DEFAULT now(),
     is_active          BOOLEAN NOT NULL DEFAULT TRUE,
     created_by         INT NOT NULL REFERENCES users(user_id),             -- Co Gap Staff / Supervisor
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     ended_at           TIMESTAMPTZ,
+    reason             TEXT DEFAULT '',
     CONSTRAINT ck_delegation_diff CHECK (original_user_id <> delegate_user_id)
 );
-CREATE UNIQUE INDEX uq_delegation_active ON delegation (gap_id, role_id, COALESCE(department_id, 0), original_user_id) WHERE is_active;
+CREATE UNIQUE INDEX uq_delegation_active ON delegation (original_user_id, role_id, COALESCE(gap_id, 0)) WHERE is_active;
 CREATE INDEX ix_delegation_delegate ON delegation (delegate_user_id) WHERE is_active;
 
 -- -----------------------------------------------------------------------------
@@ -548,26 +551,112 @@ DECLARE
     v_obo   INT  := NULLIF(current_setting('app.on_behalf_of', true), '')::INT;
     v_act   audit_activity := TG_ARGV[0]::audit_activity;
     v_new   JSONB; v_old JSONB; v_id TEXT; v_gap INT; v_action audit_action;
+    v_desc  TEXT;
+    v_gap_no TEXT;
 BEGIN
-    -- Jangan pernah menyimpan hash password di audit trail; abaikan kolom noise (updated_at).
-    -- Untuk tabel users, kolom khusus autentikasi diabaikan juga: kejadian login/logout/ganti password
-    -- dicatat eksplisit oleh aplikasi (activity AUTH), bukan oleh trigger.
     IF TG_OP <> 'DELETE' THEN v_new := to_jsonb(NEW) - 'password_hash' - 'updated_at'; END IF;
     IF TG_OP <> 'INSERT' THEN v_old := to_jsonb(OLD) - 'password_hash' - 'updated_at'; END IF;
     IF TG_TABLE_NAME = 'users' THEN
         IF v_new IS NOT NULL THEN v_new := v_new - 'password_changed_at' - 'must_change_password' - 'failed_login_count' - 'locked_until' - 'last_login_at'; END IF;
         IF v_old IS NOT NULL THEN v_old := v_old - 'password_changed_at' - 'must_change_password' - 'failed_login_count' - 'locked_until' - 'last_login_at'; END IF;
     END IF;
-    v_id  := COALESCE(v_new, v_old) ->> TG_ARGV[1];          -- nama kolom PK
+    v_id  := COALESCE(v_new, v_old) ->> TG_ARGV[1];
     v_gap := NULLIF(COALESCE(v_new, v_old) ->> 'gap_id', '')::INT;
+    IF v_gap IS NULL AND TG_TABLE_NAME = 'gap_analysis' THEN
+        v_gap := NULLIF(COALESCE(v_new, v_old) ->> 'gap_id', '')::INT;
+    ELSIF v_gap IS NULL AND TG_TABLE_NAME = 'action_plan' THEN
+        SELECT ga.gap_id INTO v_gap FROM gap_analysis ga WHERE ga.gap_analysis_id = NULLIF(COALESCE(v_new, v_old) ->> 'gap_analysis_id', '')::BIGINT;
+    END IF;
+    IF v_gap IS NOT NULL THEN
+        SELECT gap_no INTO v_gap_no FROM gap_document WHERE gap_id = v_gap;
+    END IF;
+
     v_action := CASE TG_OP WHEN 'INSERT' THEN 'ADD' WHEN 'DELETE' THEN 'DELETE' ELSE 'EDIT' END;
     IF TG_OP = 'UPDATE' AND v_old = v_new THEN RETURN NEW; END IF;
+
+    -- Human friendly descriptions in English based on table & action:
+    IF TG_TABLE_NAME = 'approval' THEN
+        IF TG_OP = 'UPDATE' AND (v_new->>'result') = 'APPROVED' THEN
+            v_action := 'APPROVE';
+            v_desc := 'Electronic Signature: Approved ' || (v_new->>'stage') || ' (Step ' || (v_new->>'step_seq') || ')';
+            IF COALESCE(v_new->>'notes', '') <> '' THEN
+                v_desc := v_desc || ' - Notes: ' || (v_new->>'notes');
+            END IF;
+        ELSIF TG_OP = 'UPDATE' AND (v_new->>'result') = 'REJECTED' THEN
+            v_action := 'REJECT';
+            v_desc := 'Rejected ' || (v_new->>'stage') || ' (Step ' || (v_new->>'step_seq') || ') - Reason: ' || COALESCE(v_new->>'notes', 'No reason specified');
+        ELSE
+            v_desc := 'Approval task for ' || (v_new->>'stage') || ' assigned/updated';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'action_plan' THEN
+        IF TG_OP = 'UPDATE' THEN
+            IF (v_old->>'execution_status') <> (v_new->>'execution_status') THEN
+                v_desc := 'Action Plan execution status updated from ' || (v_old->>'execution_status') || ' to ' || (v_new->>'execution_status');
+            ELSIF (v_old->>'progress_pct') <> (v_new->>'progress_pct') THEN
+                v_desc := 'Action Plan progress updated: ' || (v_old->>'progress_pct') || '% -> ' || (v_new->>'progress_pct') || '%';
+            ELSIF (v_old->>'due_date') <> (v_new->>'due_date') THEN
+                v_desc := 'Action Plan target due date changed from ' || (v_old->>'due_date') || ' to ' || (v_new->>'due_date');
+            ELSE
+                v_desc := 'Action Plan #' || v_id || ' updated';
+            END IF;
+        ELSIF TG_OP = 'INSERT' THEN
+            v_desc := 'New Action Plan created: ' || COALESCE(v_new->>'action_plan_text', '');
+        ELSE
+            v_desc := 'Action Plan deleted';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'gap_document' THEN
+        IF TG_OP = 'UPDATE' AND (v_old->>'workflow_status') <> (v_new->>'workflow_status') THEN
+            v_desc := 'Gap Document ' || COALESCE(v_gap_no, '') || ' status transitioned from ' || (v_old->>'workflow_status') || ' to ' || (v_new->>'workflow_status');
+        ELSE
+            v_desc := 'Gap Document ' || COALESCE(v_gap_no, '#' || v_id) || ' updated';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'delegation' THEN
+        v_action := 'DELEGATION';
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Approval authority delegation created';
+        ELSIF TG_OP = 'UPDATE' AND (v_new->>'is_active') = 'false' THEN
+            v_desc := 'Approval authority delegation revoked';
+        ELSE
+            v_desc := 'Approval authority delegation record updated';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'gap_analysis' THEN
+        IF TG_OP = 'UPDATE' THEN
+            IF (v_old->>'status') <> (v_new->>'status') THEN
+                v_desc := 'Clause #' || v_id || ' compliance status changed: ' || COALESCE(v_old->>'status','-') || ' -> ' || (v_new->>'status');
+            ELSE
+                v_desc := 'Gap evaluation for Clause #' || v_id || ' (' || COALESCE(v_gap_no,'') || ') updated';
+            END IF;
+        ELSE
+            v_desc := 'Gap analysis clause assessment saved';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'evidence' THEN
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Compliance evidence uploaded: ' || COALESCE(v_new->>'file_name', v_new->>'evidence_text', '');
+        ELSE
+            v_desc := 'Compliance evidence record updated';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'regulation' THEN
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Regulation registered: ' || COALESCE(v_new->>'legal_number', '') || ' - ' || COALESCE(v_new->>'title', '');
+        ELSE
+            v_desc := 'Regulation #' || v_id || ' updated';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'users' THEN
+        v_desc := 'User account #' || v_id || ' (' || COALESCE(v_new->>'username', v_old->>'username', '') || ') updated';
+    ELSIF TG_TABLE_NAME = 'department' THEN
+        v_desc := 'Department #' || v_id || ' (' || COALESCE(v_new->>'department_code', v_old->>'department_code', '') || ') updated';
+    ELSE
+        v_desc := TG_OP || ' ' || TG_TABLE_NAME || ' #' || COALESCE(v_id, '?');
+    END IF;
+
+    IF v_obo IS NOT NULL THEN
+        v_desc := v_desc || ' (on behalf of user ' || v_obo || ')';
+    END IF;
+
     INSERT INTO log_history (user_id, username, action, activity, gap_id, entity_table, entity_id,
                              description, before_value, after_value, on_behalf_of_user_id, ip_address)
     VALUES (v_user, (SELECT username FROM users WHERE user_id = v_user), v_action, v_act, v_gap, TG_TABLE_NAME, v_id,
-            TG_OP || ' ' || TG_TABLE_NAME || ' #' || COALESCE(v_id,'?') ||
-              CASE WHEN v_obo IS NOT NULL THEN ' (on behalf of user ' || v_obo || ')' ELSE '' END,
-            v_old, v_new, v_obo, NULLIF(current_setting('app.ip', true), '')::INET);
+            v_desc, v_old, v_new, v_obo, NULLIF(current_setting('app.ip', true), '')::INET);
     RETURN COALESCE(NEW, OLD);
 END $$;
 

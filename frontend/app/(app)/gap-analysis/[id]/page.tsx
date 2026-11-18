@@ -10,6 +10,16 @@ import Lampiran1Modal from "@/components/reports/Lampiran1Modal";
 
 type DeptOption = { id: number; code: string; name: string };
 
+type EvidenceItem = {
+  evidenceId: number;
+  actionPlanId: number;
+  evidenceType: "FILE" | "TEXT";
+  evidenceText: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+};
+
 type GapAnalysisRow = {
   gapAnalysisId: number;
   gapId: number;
@@ -44,6 +54,10 @@ type GapAnalysisRow = {
   verifiedByName: string;
   verifiedAt: string | null;
   verificationNotes: string;
+  executionStatus?: string;
+  evidenceSummary?: string;
+  evidences?: EvidenceItem[];
+  apVerifiedByName?: string;
 };
 
 type GapDocDetail = {
@@ -78,6 +92,7 @@ type GapDocDetail = {
   returnedByName?: string;
   changeNotes?: any[];
   approvals?: any[];
+  otherSites?: { gapId: number; gapNo: string; siteCode: string; siteName: string }[];
   clauses: GapAnalysisRow[];
 };
 
@@ -469,6 +484,13 @@ export default function GapAnalysisDetailPage() {
   const [returnPicNotes, setReturnPicNotes] = useState("");
   const [showLampiran1, setShowLampiran1] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<any | null>(null);
+  const [showSignModal, setShowSignModal] = useState(false);
+  const [signDecision, setSignDecision] = useState<"APPROVE" | "REJECT">("APPROVE");
+  const [signNotes, setSignNotes] = useState("");
+  const [signPassword, setSignPassword] = useState("");
+  const [signSubmitting, setSignSubmitting] = useState(false);
+  const [signErr, setSignErr] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<
     "submit_next" | "leave_unsaved" | null
   >(null);
@@ -527,9 +549,65 @@ export default function GapAnalysisDetailPage() {
             .then((u) => setUsers((u || []).filter((x) => x.isActive !== false)))
             .catch(() => {});
         }
+
+        // Check if current user has an active pending approval for this gap document
+        api<any[]>("/api/approvals?pending=true")
+          .then((apps) => {
+            const found = (apps || []).find((a) => a.gapId === Number(gapId) && a.canAct && a.result === "PENDING");
+            setPendingApproval(found || null);
+          })
+          .catch(() => setPendingApproval(null));
       })
       .catch((err) => setMsg({ type: "err", text: err.message || "Failed to load gap document" }))
       .finally(() => setLoading(false));
+  };
+
+  const openSignModal = (act: "APPROVE" | "REJECT") => {
+    setSignDecision(act);
+    setSignNotes("");
+    setSignPassword("");
+    setSignErr(null);
+    setShowSignModal(true);
+  };
+
+  const handleSignSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingApproval) return;
+    setSignErr(null);
+
+    if (signDecision === "REJECT" && !signNotes.trim()) {
+      setSignErr("Rejection reason is mandatory.");
+      return;
+    }
+    if (!signPassword) {
+      setSignErr("Account password confirmation is required for electronic signature.");
+      return;
+    }
+
+    setSignSubmitting(true);
+    try {
+      await api(`/api/approvals/${pendingApproval.approvalId}/act`, {
+        method: "POST",
+        body: {
+          approve: signDecision === "APPROVE",
+          notes: signNotes.trim(),
+          password: signPassword,
+        },
+      });
+      setShowSignModal(false);
+      setMsg({
+        type: "ok",
+        text:
+          signDecision === "APPROVE"
+            ? `Dokumen ${doc?.gapNo} (${pendingApproval.stage}) berhasil disetujui secara elektronik.`
+            : `Dokumen ${doc?.gapNo} (${pendingApproval.stage}) telah ditolak dan dikembalikan untuk revisi.`,
+      });
+      loadDoc();
+    } catch (err: any) {
+      setSignErr(err?.message || "Failed to process approval");
+    } finally {
+      setSignSubmitting(false);
+    }
   };
 
   useEffect(() => {
@@ -655,6 +733,12 @@ export default function GapAnalysisDetailPage() {
     doc.workflowStatus === "ACTION_PLAN" ||
     hasAnyActionPlanData ||
     (doc.workflowStatus !== "DRAFT" && doc.workflowStatus !== "SUPERVISOR_VERIFICATION");
+
+  const showEvidenceColumn =
+    doc.workflowStatus === "EXECUTION" ||
+    doc.workflowStatus === "APPROVAL_STAGE2" ||
+    doc.workflowStatus === "CLOSED" ||
+    doc.clauses.some((c) => (c.evidences && c.evidences.length > 0) || !!c.evidenceSummary);
 
   const handleBackClick = () => {
     if (hasUnsavedChanges && canEditAny) {
@@ -1040,7 +1124,38 @@ export default function GapAnalysisDetailPage() {
             Legal Number: <strong>{doc.legalNumber}</strong> | Effective Date: {new Date(doc.effectiveDate).toLocaleDateString()} | Created by: {doc.createdByName}
           </p>
         </div>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+          {pendingApproval && (
+            <div style={{ display: "inline-flex", gap: "0.4rem", marginRight: "0.25rem" }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  background: "#166534",
+                  borderColor: "#166534",
+                  color: "#fff",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  fontWeight: 600,
+                }}
+                onClick={() => openSignModal("APPROVE")}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Sign & Approve ({pendingApproval.stage})
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ color: "#dc2626", borderColor: "#fecaca", background: "#fef2f2" }}
+                onClick={() => openSignModal("REJECT")}
+              >
+                Reject
+              </button>
+            </div>
+          )}
           {(isStaff || isSupervisor) &&
             (doc.workflowStatus === "EXECUTION" ||
               doc.workflowStatus === "APPROVAL_STAGE2" ||
@@ -1058,6 +1173,78 @@ export default function GapAnalysisDetailPage() {
           </button>
         </div>
       </div>
+
+      {doc.otherSites && doc.otherSites.length > 0 && (
+        <div
+          className="card"
+          style={{
+            marginBottom: "0.85rem",
+            padding: "0.6rem 0.85rem",
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.5rem",
+            fontSize: "0.85rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "1.1rem" }}>🏢</span>
+            <span>
+              Regulasi ini juga terdaftar untuk Site Kalbe lain:
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+            {doc.otherSites.map((s) => (
+              <Link
+                key={s.gapId}
+                href={`/gap-analysis/${s.gapId}?from=/regulations`}
+                className="btn btn-ghost"
+                style={{
+                  fontSize: "0.78rem",
+                  padding: "0.2rem 0.55rem",
+                  minHeight: "26px",
+                  background: "#fff",
+                  borderColor: "#86efac",
+                  color: "#166534",
+                  fontWeight: 600,
+                }}
+              >
+                {s.siteCode} — {s.gapNo} ↗
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {doc.changeNotes && doc.changeNotes.length > 0 && doc.changeNotes[0].changePoints && (
+        <div
+          className="alert"
+          style={{
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            color: "#1e40af",
+            marginBottom: "0.75rem",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.35rem",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+            <strong>Change Notes (Revision History):</strong>
+            <div style={{ display: "flex", gap: "0.4rem" }}>
+              <span className="badge badge-ok" style={{ fontSize: "0.78rem" }}>New: {doc.changeNotes[0].newCount}</span>
+              <span className="badge badge-warn" style={{ fontSize: "0.78rem" }}>Changed: {doc.changeNotes[0].changedCount}</span>
+              <span className="badge badge-err" style={{ fontSize: "0.78rem" }}>Deleted: {doc.changeNotes[0].deletedCount}</span>
+            </div>
+          </div>
+          <div style={{ fontSize: "0.85rem", color: "#1e3a8a" }}>
+            <em>"{doc.changeNotes[0].changePoints}"</em>
+          </div>
+        </div>
+      )}
 
       {(doc.workflowStatus === "DRAFT" || doc.workflowStatus === "ACTION_PLAN") && doc.returnNotes && (
         <div
@@ -1200,6 +1387,9 @@ export default function GapAnalysisDetailPage() {
                   <th style={{ minWidth: "120px" }}>PIC</th>
                   <th style={{ minWidth: "130px" }}>Due Date</th>
                 </>
+              )}
+              {showEvidenceColumn && (
+                <th style={{ minWidth: "180px" }}>Bukti Pemenuhan (Evidence)</th>
               )}
             </tr>
           </thead>
@@ -1488,6 +1678,57 @@ export default function GapAnalysisDetailPage() {
                         )}
                       </td>
                     </>
+                  )}
+                  {showEvidenceColumn && (
+                    <td style={{ minWidth: "160px", maxWidth: "230px" }}>
+                      {c.evidences && c.evidences.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                          {c.evidences.map((ev) =>
+                            ev.evidenceType === "FILE" ? (
+                              <a
+                                key={ev.evidenceId}
+                                href={`/api/evidences/${ev.evidenceId}/file`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  fontSize: "0.78rem",
+                                  fontWeight: 600,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.25rem",
+                                  color: "var(--primary)",
+                                  textDecoration: "underline",
+                                }}
+                              >
+                                📄 {ev.fileName}
+                              </a>
+                            ) : (
+                              <div
+                                key={ev.evidenceId}
+                                style={{
+                                  fontSize: "0.78rem",
+                                  background: "var(--surface-2)",
+                                  padding: "0.2rem 0.4rem",
+                                  borderRadius: "4px",
+                                }}
+                                title={ev.evidenceText}
+                              >
+                                {ev.evidenceText}
+                              </div>
+                            )
+                          )}
+                          {c.apVerifiedByName && (
+                            <div style={{ fontSize: "0.72rem", color: "var(--ok)", fontWeight: 600 }}>
+                              ✓ Verified by {c.apVerifiedByName}
+                            </div>
+                          )}
+                        </div>
+                      ) : c.evidenceSummary ? (
+                        <span style={{ fontSize: "0.8rem" }}>{c.evidenceSummary}</span>
+                      ) : (
+                        <span className="muted small">—</span>
+                      )}
+                    </td>
                   )}
                 </tr>
               );
@@ -1797,6 +2038,110 @@ export default function GapAnalysisDetailPage() {
 
       {showLampiran1 && (
         <Lampiran1Modal doc={doc} onClose={() => setShowLampiran1(false)} />
+      )}
+
+      {/* Direct Electronic Signature Approval Modal */}
+      {showSignModal && pendingApproval && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: "520px" }}>
+            <div className="modal-header">
+              <h2 className="modal-title">
+                {signDecision === "APPROVE" ? "Electronic Signature Approval" : "Reject Document"}
+              </h2>
+              <button type="button" className="modal-close" onClick={() => setShowSignModal(false)}>
+                ×
+              </button>
+            </div>
+
+            {signErr && <div className="alert alert-error">{signErr}</div>}
+
+            <form onSubmit={handleSignSubmit}>
+              <div
+                style={{
+                  background: "var(--surface-2)",
+                  padding: "0.75rem",
+                  borderRadius: "8px",
+                  marginBottom: "1rem",
+                  fontSize: "0.85rem",
+                }}
+              >
+                <div>
+                  <strong>{doc.gapNo}</strong> — {pendingApproval.stage} (Step {pendingApproval.stepSeq})
+                </div>
+                <div className="muted small" style={{ marginTop: "0.2rem" }}>
+                  {doc.regulationTitle}
+                </div>
+                <div style={{ marginTop: "0.3rem" }}>
+                  Role: <strong>{pendingApproval.roleName}</strong> {pendingApproval.departmentCode ? `(${pendingApproval.departmentCode})` : ""}
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="sign_notes">
+                  Approval Comments {signDecision === "REJECT" && <span style={{ color: "#c52a2a" }}>*</span>}
+                </label>
+                <textarea
+                  id="sign_notes"
+                  rows={3}
+                  className="filter-input"
+                  style={{ width: "100%", height: "auto" }}
+                  placeholder={
+                    signDecision === "REJECT"
+                      ? "Mandatory: Enter the reason for rejection..."
+                      : "Optional approval comments..."
+                  }
+                  value={signNotes}
+                  onChange={(e) => setSignNotes(e.target.value)}
+                  required={signDecision === "REJECT"}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="sign_password">
+                  Account Password Confirmation <span style={{ color: "#c52a2a" }}>*</span>
+                </label>
+                <input
+                  id="sign_password"
+                  type="password"
+                  placeholder="Enter your account password..."
+                  value={signPassword}
+                  onChange={(e) => setSignPassword(e.target.value)}
+                  required
+                />
+                <p className="muted small" style={{ margin: "0.25rem 0 0" }}>
+                  ERES 21 CFR Part 11: Electronic signature requires authentication with your password.
+                </p>
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setShowSignModal(false)}
+                  disabled={signSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={
+                    signDecision === "REJECT"
+                      ? { background: "#c52a2a", borderColor: "#c52a2a" }
+                      : { background: "#166534", borderColor: "#166534" }
+                  }
+                  disabled={signSubmitting}
+                >
+                  {signSubmitting
+                    ? "Processing Signature..."
+                    : signDecision === "APPROVE"
+                    ? "Sign & Approve"
+                    : "Confirm Rejection"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </main>
   );

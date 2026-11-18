@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -59,6 +59,9 @@ export default function NewRegulationPage() {
     },
   ]);
 
+  const [baselineClauses, setBaselineClauses] = useState<ClauseInput[]>([]);
+  const [changePoints, setChangePoints] = useState("");
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [titleMatchInfo, setTitleMatchInfo] = useState<{ currentRev: number; nextRev: number } | null>(null);
@@ -70,6 +73,40 @@ export default function NewRegulationPage() {
   } | null>(null);
   const autoMatchedByTitleRef = useRef(false);
 
+  const changeSummary = useMemo(() => {
+    if (docStatus !== "REVISION" || baselineClauses.length === 0) return null;
+    const baseMap = new Map<string, ClauseInput>();
+    baselineClauses.forEach((b) => baseMap.set(b.clauseNo.trim().toLowerCase(), b));
+
+    let newCount = 0;
+    let changedCount = 0;
+    const currentNos = new Set<string>();
+
+    clauses.forEach((c) => {
+      const key = c.clauseNo.trim().toLowerCase();
+      currentNos.add(key);
+      const prev = baseMap.get(key);
+      if (!prev) {
+        newCount++;
+      } else if (
+        prev.requirementText.trim() !== c.requirementText.trim() ||
+        prev.clauseTitle.trim() !== c.clauseTitle.trim() ||
+        prev.chapter.trim() !== c.chapter.trim()
+      ) {
+        changedCount++;
+      }
+    });
+
+    let deletedCount = 0;
+    baselineClauses.forEach((b) => {
+      if (!currentNos.has(b.clauseNo.trim().toLowerCase())) {
+        deletedCount++;
+      }
+    });
+
+    return { newCount, changedCount, deletedCount };
+  }, [docStatus, baselineClauses, clauses]);
+
   const loadPreviousClauses = async (prevId: number) => {
     try {
       const detail = await api<{
@@ -78,16 +115,16 @@ export default function NewRegulationPage() {
       }>(`/api/regulations/${prevId}`);
 
       if (detail && detail.clauses && detail.clauses.length > 0) {
-        setClauses(
-          detail.clauses.map((c: any, idx: number) => ({
-            sortOrder: c.sortOrder || idx + 1,
-            chapter: c.chapter || "",
-            clauseNo: c.clauseNo || "",
-            clauseTitle: c.clauseTitle || "",
-            requirementText: c.requirementText || "",
-            isInfo: !!c.isInfo,
-          }))
-        );
+        const mapped = detail.clauses.map((c: any, idx: number) => ({
+          sortOrder: c.sortOrder || idx + 1,
+          chapter: c.chapter || "",
+          clauseNo: c.clauseNo || "",
+          clauseTitle: c.clauseTitle || "",
+          requirementText: c.requirementText || "",
+          isInfo: !!c.isInfo,
+        }));
+        setClauses(mapped);
+        setBaselineClauses(mapped);
         return detail.clauses.length;
       }
     } catch (err) {
@@ -143,16 +180,16 @@ export default function NewRegulationPage() {
                 if (reg.regulationType) setRegulationType(reg.regulationType);
 
                 if (detail.clauses && detail.clauses.length > 0) {
-                  setClauses(
-                    detail.clauses.map((c: any, idx: number) => ({
-                      sortOrder: c.sortOrder || idx + 1,
-                      chapter: c.chapter || "",
-                      clauseNo: c.clauseNo || "",
-                      clauseTitle: c.clauseTitle || "",
-                      requirementText: c.requirementText || "",
-                      isInfo: !!c.isInfo,
-                    }))
-                  );
+                  const mapped = detail.clauses.map((c: any, idx: number) => ({
+                    sortOrder: c.sortOrder || idx + 1,
+                    chapter: c.chapter || "",
+                    clauseNo: c.clauseNo || "",
+                    clauseTitle: c.clauseTitle || "",
+                    requirementText: c.requirementText || "",
+                    isInfo: !!c.isInfo,
+                  }));
+                  setClauses(mapped);
+                  setBaselineClauses(mapped);
                 }
 
                 autoMatchedByTitleRef.current = true;
@@ -360,6 +397,10 @@ export default function NewRegulationPage() {
         readMode: pdfFilePath && clauses.length > 0 ? "AUTO" : "MANUAL",
         siteIds: selectedSites,
         clauses,
+        changePoints: docStatus === "REVISION" && changePoints.trim() ? changePoints.trim() : null,
+        newCount: docStatus === "REVISION" && changeSummary ? changeSummary.newCount : null,
+        changedCount: docStatus === "REVISION" && changeSummary ? changeSummary.changedCount : null,
+        deletedCount: docStatus === "REVISION" && changeSummary ? changeSummary.deletedCount : null,
       };
 
       const res = await api<{ regulationId: number; gapIds: number[]; gapNos: string[] }>(
@@ -744,6 +785,49 @@ export default function NewRegulationPage() {
             </div>
           </div>
         </div>
+
+        {/* Change Notes Card for Revision */}
+        {docStatus === "REVISION" && (
+          <div className="card" style={{ marginTop: "1.25rem", borderLeft: "4px solid var(--primary)", background: "var(--surface)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div>
+                <h3 style={{ fontSize: "1rem", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span>Change Notes Summary</span>
+                </h3>
+                <p className="muted small" style={{ margin: "0.2rem 0 0" }}>
+                  System automatically detects differences in clauses from the previous revision baseline.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <span className="badge badge-ok" style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}>
+                  New: {changeSummary?.newCount ?? 0}
+                </span>
+                <span className="badge badge-warn" style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}>
+                  Changed: {changeSummary?.changedCount ?? 0}
+                </span>
+                <span className="badge badge-err" style={{ fontSize: "0.8rem", padding: "0.25rem 0.6rem" }}>
+                  Deleted: {changeSummary?.deletedCount ?? 0}
+                </span>
+              </div>
+            </div>
+
+            <div className="field" style={{ marginTop: "0.75rem", marginBottom: 0 }}>
+              <label htmlFor="changePoints">
+                Change Points Description <span style={{ color: "#c52a2a" }}>*</span>
+              </label>
+              <textarea
+                id="changePoints"
+                rows={2}
+                className="filter-input"
+                style={{ width: "100%", height: "auto" }}
+                placeholder="e.g. Penyesuaian pedoman CPOB edisi terbaru 2026..."
+                value={changePoints}
+                onChange={(e) => setChangePoints(e.target.value)}
+                required={docStatus === "REVISION"}
+              />
+            </div>
+          </div>
+        )}
 
         {/* 2. Extracted Clauses Table */}
         <div className="card" style={{ marginTop: "1.5rem" }}>

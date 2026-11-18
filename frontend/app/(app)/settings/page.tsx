@@ -110,6 +110,8 @@ export default function SettingsPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [modalErr, setModalErr] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<Delegation | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -274,13 +276,28 @@ export default function SettingsPage() {
     }
   };
 
-  const handleRevokeDelegation = async (id: number) => {
-    if (!confirm("Are you sure you want to revoke this delegation?")) return;
+  const handleRevokeDelegation = (dl: Delegation) => {
+    setRevokeTarget(dl);
+  };
+
+  const confirmRevoke = async () => {
+    if (!revokeTarget) return;
+    setSubmitting(true);
     try {
-      await api(`/api/delegations/${id}`, { method: "DELETE" });
+      await api(`/api/delegations/${revokeTarget.id}`, { method: "DELETE" });
+      setToastMessage({
+        type: "ok",
+        text: `Pendelegasian wewenang untuk ${revokeTarget.principalName} berhasil dicabut (Revoked).`,
+      });
+      setRevokeTarget(null);
       loadData();
     } catch (err: any) {
-      alert(err?.message || "Failed to revoke delegation");
+      setToastMessage({
+        type: "err",
+        text: err?.message || "Gagal mencabut pendelegasian wewenang.",
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -401,6 +418,22 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+
+      {toastMessage && (
+        <div
+          className={`alert ${toastMessage.type === "ok" ? "alert-success" : "alert-error"}`}
+          style={{ marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+        >
+          <span>{toastMessage.text}</span>
+          <button
+            type="button"
+            onClick={() => setToastMessage(null)}
+            style={{ background: "none", border: "none", cursor: "pointer", fontWeight: 700, fontSize: "1rem" }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="tabs">
         <button
@@ -664,7 +697,7 @@ export default function SettingsPage() {
                         type="button"
                         className="btn btn-ghost"
                         style={{ minHeight: "30px", fontSize: "0.8rem", padding: "0 0.6rem", color: "var(--err-text)" }}
-                        onClick={() => handleRevokeDelegation(dl.id)}
+                        onClick={() => handleRevokeDelegation(dl)}
                       >
                         Revoke
                       </button>
@@ -1035,6 +1068,47 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Revoke Delegation Confirmation Modal */}
+      {revokeTarget && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: "480px" }}>
+            <div className="modal-header">
+              <h2 className="modal-title" style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "#b91c1c" }}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                Revoke Delegation
+              </h2>
+              <button type="button" className="modal-close" onClick={() => setRevokeTarget(null)}>
+                ×
+              </button>
+            </div>
+            <div style={{ padding: "0.5rem 0 1rem", fontSize: "0.9rem", color: "var(--text)" }}>
+              Apakah Anda yakin ingin mencabut (<strong>Revoke</strong>) pendelegasian wewenang approval dari{" "}
+              <strong>{revokeTarget.principalName}</strong> ke <strong>{revokeTarget.delegateName}</strong> ({revokeTarget.siteCode})?
+              <div style={{ marginTop: "0.75rem", padding: "0.6rem 0.85rem", background: "#fef2f2", border: "1px solid #fee2e2", borderRadius: "6px", fontSize: "0.82rem", color: "#991b1b" }}>
+                Wewenang approval akan langsung dikembalikan ke Approver Asli dan tindakan pencabutan ini akan dicatat ke dalam Audit Trail.
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setRevokeTarget(null)} disabled={submitting}>
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ background: "#dc2626", borderColor: "#dc2626", color: "#fff" }}
+                disabled={submitting}
+                onClick={confirmRevoke}
+              >
+                {submitting ? "Memproses..." : "Ya, Revoke Delegasi"}
+              </button>
+            </div>
           </div>
         </div>
       )}
