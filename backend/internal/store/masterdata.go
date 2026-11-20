@@ -209,7 +209,7 @@ func (s *Store) SaveDepartment(ctx context.Context, actorUserID int, dept Depart
 	})
 }
 
-// ------------------------------------------------ Users (URS 006A, 011A)
+// ------------------------------------------------ Users
 
 func (s *Store) ListUsersSummary(ctx context.Context, siteID, deptID *int, search string) ([]UserSummary, error) {
 	query := `
@@ -295,7 +295,7 @@ func (s *Store) UpdateUserAdmin(ctx context.Context, actorUserID int, req Update
 	})
 }
 
-// ------------------------------------------------ Delegations (URS 011D)
+// ------------------------------------------------ Delegations
 
 type CreateDelegationReq struct {
 	GapID          *int          `json:"gapId"`

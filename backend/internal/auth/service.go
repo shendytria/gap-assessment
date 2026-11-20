@@ -56,13 +56,13 @@ type LoginResult struct {
 	Reason    string
 }
 
-// Login memverifikasi kredensial (URS 001A) dan membuat sesi.
+// Login memverifikasi kredensial dan membuat sesi.
 func (s *Service) Login(ctx context.Context, username, password, ip string) (*LoginResult, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
 		return nil, httpx.NewError(http.StatusBadRequest, "BAD_REQUEST", "Username and password are required.")
 	}
-	if len(username) > 50 || len(password) > 1024 {
+	if len(username) > 100 || len(password) > 1024 {
 		return nil, errInvalidCreds
 	}
 
@@ -124,7 +124,7 @@ func (s *Service) Logout(ctx context.Context, sessionID string, u *store.User, i
 	return nil
 }
 
-// ChangePassword menerapkan kebijakan password URS 001A.
+// ChangePassword menerapkan kebijakan password.
 func (s *Service) ChangePassword(ctx context.Context, u *store.User, sessionID, current, next, ip string) error {
 	if !CheckPassword(u.PasswordHash, current) {
 		return httpx.NewError(http.StatusBadRequest, "WRONG_CURRENT_PASSWORD", "Current password is incorrect.")

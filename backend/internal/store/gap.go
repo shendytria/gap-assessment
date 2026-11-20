@@ -523,7 +523,7 @@ func applyGapAnalysisItems(ctx context.Context, tx pgx.Tx, gapID int, items []Up
 			}
 			isComply100 = *inProc && *inPrac
 		} else {
-			// Calculate proposed status per URS 008A rule:
+			// Calculate proposed status:
 			// in_procedure & in_practice = 100; neither = 0; one = 50.
 			isApplicable = item.IsApplicable
 			var proposedStatus *string

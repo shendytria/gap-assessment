@@ -49,7 +49,7 @@ func (s *Service) clearCookie(w http.ResponseWriter) {
 	})
 }
 
-// Authenticate memvalidasi sesi (URS 001B). Setiap request menggeser batas idle 30 menit,
+// Authenticate memvalidasi sesi. Setiap request menggeser batas idle 30 menit,
 // kecuali klien menandai request latar belakang dengan header "X-Idle-Poll: 1" agar polling
 // otomatis tidak menjaga sesi tetap hidup tanpa aktivitas pengguna.
 func (s *Service) Authenticate(next http.Handler) http.Handler {
@@ -96,7 +96,7 @@ func (s *Service) Authenticate(next http.Handler) http.Handler {
 }
 
 // RequirePasswordCurrent memblokir semua fitur selain ganti password bila password masih default
-// atau sudah melewati 90 hari (URS 001A).
+// atau sudah melewati 90 hari.
 func (s *Service) RequirePasswordCurrent(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if reason := s.passwordChangeReason(UserFrom(r.Context())); reason != "" {
@@ -117,7 +117,7 @@ const (
 	ActionDownload = "download_pdf"
 )
 
-// RequirePermission memeriksa hak akses role (URS 002B) terhadap modul. Dipakai modul-modul berikutnya:
+// RequirePermission memeriksa hak akses role terhadap modul. Dipakai modul-modul berikutnya:
 //
 //	mux.Handle("GET /api/master-list", chain(h, svc.Authenticate, svc.RequirePasswordCurrent, svc.RequirePermission("MASTER_LIST", auth.ActionView)))
 func (s *Service) RequirePermission(module, action string) func(http.Handler) http.Handler {

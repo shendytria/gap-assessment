@@ -307,18 +307,44 @@ func (s *Store) queryActionPlans(ctx context.Context, actor *User, whereClause s
 	return out, nil
 }
 
-func (s *Store) ListOutstandingActionPlans(ctx context.Context, actor *User, picUserID *int, deptID *int, siteID *int) ([]ActionPlanItem, error) {
+func (s *Store) ListOutstandingActionPlans(ctx context.Context, actor *User, myTasksOnly bool, deptID *int, siteID *int) ([]ActionPlanItem, error) {
 	where := `
-		WHERE ($2::int IS NULL OR ap.pic_user_id = $2::int)
-		  AND ($3::int IS NULL OR ga.dept_in_control_id = $3::int
-		       OR EXISTS (SELECT 1 FROM gap_analysis_dept gd WHERE gd.gap_analysis_id = ga.gap_analysis_id AND gd.department_id = $3::int)
+		WHERE ($2::int IS NULL OR ga.dept_in_control_id = $2::int
+		       OR EXISTS (SELECT 1 FROM gap_analysis_dept gd WHERE gd.gap_analysis_id = ga.gap_analysis_id AND gd.department_id = $2::int)
 		       OR ga.dept_in_control_all = TRUE)
-		  AND ($4::smallint IS NULL OR g.site_id = $4::smallint)
+		  AND ($3::smallint IS NULL OR g.site_id = $3::smallint)
 		  AND ap.pic_user_id IS NOT NULL
 		  AND ap.due_date IS NOT NULL
 		  AND g.stage1_approved_at IS NOT NULL
 		  AND g.workflow_status IN ('EXECUTION', 'APPROVAL_STAGE2')`
-	return s.queryActionPlans(ctx, actor, where, "ap.due_date ASC, ap.action_plan_id ASC", picUserID, deptID, siteID)
+
+	if myTasksOnly && actor != nil {
+		switch actor.RoleCode {
+		case "CO_GAP_SUPERVISOR":
+			// Supervisor pool: Action plans requiring Supervisor action
+			// 1. Pending Due Date Change request
+			// 2. Completed Action Plan pending verification
+			where += ` AND (
+				ap.execution_status = 'PENDING_VERIFICATION'
+				OR EXISTS (
+					SELECT 1 FROM action_plan_due_change dc
+					WHERE dc.action_plan_id = ap.action_plan_id AND dc.status = 'REQUESTED'
+				)
+			)`
+		case "PIC_AREA":
+			// PIC: only action plans assigned to this PIC
+			where += fmt.Sprintf(" AND ap.pic_user_id = %d", actor.ID)
+		case "MANAGER_AREA":
+			// Manager: action plans in manager's department
+			if actor.DepartmentID != nil {
+				deptID = actor.DepartmentID
+			}
+		default:
+			where += fmt.Sprintf(" AND ap.pic_user_id = %d", actor.ID)
+		}
+	}
+
+	return s.queryActionPlans(ctx, actor, where, "ap.due_date ASC, ap.action_plan_id ASC", deptID, siteID)
 }
 
 func (s *Store) ListActionPlansByGapID(ctx context.Context, gapID int) ([]ActionPlanItem, error) {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
 
 type RegulationItem = {
   id: number;
@@ -27,6 +28,8 @@ export default function RegulationsPage() {
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("");
   const [categories, setCategories] = useState<{ id: number; code: string; name: string }[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     api<{ id: number; code: string; name: string }[]>("/api/categories")
@@ -47,8 +50,12 @@ export default function RegulationsPage() {
   };
 
   useEffect(() => {
+    setPage(1);
     loadData();
   }, [catFilter, search]);
+
+  const total = (items || []).length;
+  const pagedItems = (items || []).slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <main className="page">
@@ -123,7 +130,7 @@ export default function RegulationsPage() {
                 </td>
               </tr>
             ) : (
-              (items || []).map((r) => (
+              pagedItems.map((r) => (
                 <tr key={r.id}>
                   <td>
                     <span className="badge badge-info">{r.categoryCode}</span>
@@ -167,6 +174,18 @@ export default function RegulationsPage() {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        disabled={loading}
+        onPageChange={setPage}
+        onPageSizeChange={(s) => {
+          setPageSize(s);
+          setPage(1);
+        }}
+      />
     </main>
   );
 }

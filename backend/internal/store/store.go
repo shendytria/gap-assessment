@@ -115,9 +115,9 @@ func scanUser(row pgx.Row) (*User, error) {
 	return &u, err
 }
 
-// UserByUsername mencari user tanpa membedakan huruf besar/kecil. Mengembalikan nil bila tidak ada.
+// UserByUsername mencari user berdasarkan username atau email tanpa membedakan huruf besar/kecil.
 func (s *Store) UserByUsername(ctx context.Context, username string) (*User, error) {
-	return scanUser(s.Pool.QueryRow(ctx, userSelect+` WHERE lower(u.username) = lower($1)`, username))
+	return scanUser(s.Pool.QueryRow(ctx, userSelect+` WHERE lower(u.username) = lower($1) OR lower(u.email) = lower($1)`, username))
 }
 
 func (s *Store) UserByID(ctx context.Context, id int) (*User, error) {

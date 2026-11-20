@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
+import { Toast } from "@/components/Toast";
 
 type EvidenceItem = {
   evidenceId: number;
@@ -87,6 +89,8 @@ export default function ExecutionPage() {
   const [siteFilter, setSiteFilter] = useState("");
   const [sites, setSites] = useState<{ id: number; code: string; name: string }[]>([]);
   const [toast, setToast] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   // Update Progress modal (PIC Area)
   const [selectedPlan, setSelectedPlan] = useState<ActionPlanItem | null>(null);
@@ -143,8 +147,12 @@ export default function ExecutionPage() {
   };
 
   useEffect(() => {
+    setPage(1);
     loadPlans();
   }, [myOnly, siteFilter]);
+
+  const total = (plans || []).length;
+  const pagedPlans = (plans || []).slice((page - 1) * pageSize, page * pageSize);
 
   const openUpdateModal = (p: ActionPlanItem) => {
     setSelectedPlan(p);
@@ -360,52 +368,7 @@ export default function ExecutionPage() {
 
   return (
     <main className="page">
-      {toast && (
-        <div
-          role="status"
-          style={{
-            position: "fixed",
-            top: "1.25rem",
-            right: "1.25rem",
-            zIndex: 10000,
-            maxWidth: "400px",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "0.65rem",
-            padding: "0.8rem 1rem",
-            borderRadius: "10px",
-            background: toast.type === "ok" ? "var(--surface)" : "var(--err-bg)",
-            border: `1px solid ${toast.type === "ok" ? "var(--border)" : "var(--err-border)"}`,
-            color: toast.type === "ok" ? "var(--text)" : "var(--err-text)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-            fontSize: "0.85rem",
-            lineHeight: 1.4,
-          }}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
-            {toast.type === "ok" ? (
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-            )}
-          </span>
-          <span style={{ flex: 1 }}>{toast.text}</span>
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            aria-label="Close notification"
-            style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: "1rem", padding: 0 }}
-          >
-            ×
-          </button>
-        </div>
-      )}
+      <Toast toast={toast} onClose={() => setToast(null)} />
 
       <div className="toolbar">
         <div>
@@ -425,7 +388,11 @@ export default function ExecutionPage() {
               onChange={(e) => setMyOnly(e.target.checked)}
               style={{ width: "16px", height: "16px" }}
             />
-            <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>My Tasks Only</span>
+            <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>
+              {me?.user.role === "CO_GAP_SUPERVISOR"
+                ? "My Tasks"
+                : "My Tasks Only"}
+            </span>
           </label>
 
           <select
@@ -478,7 +445,7 @@ export default function ExecutionPage() {
                 </td>
               </tr>
             ) : (
-              (plans || []).map((p) => {
+              pagedPlans.map((p) => {
                 const statusBadge =
                   p.monitoringStatus === "Overdue"
                     ? "badge-err"
@@ -621,9 +588,18 @@ export default function ExecutionPage() {
                         {me?.user.role === "CO_GAP_SUPERVISOR" && p.pendingDueChange && (
                           <button
                             type="button"
-                            className="btn btn-ghost"
-                            style={{ minHeight: "30px", fontSize: "0.8rem", padding: "0 0.65rem" }}
+                            className="btn"
+                            style={{
+                              minHeight: "30px",
+                              fontSize: "0.8rem",
+                              padding: "0 0.65rem",
+                              background: "#fef3c7",
+                              color: "#92400e",
+                              borderColor: "#fcd34d",
+                              fontWeight: 600,
+                            }}
                             onClick={() => openDueVerifyModal(p)}
+                            title="Verify requested due date change"
                           >
                             Verify Due Date
                           </button>
@@ -637,6 +613,18 @@ export default function ExecutionPage() {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        disabled={loading}
+        onPageChange={setPage}
+        onPageSizeChange={(s) => {
+          setPageSize(s);
+          setPage(1);
+        }}
+      />
 
       {/* Modal 1: Update Action Plan for PIC Area */}
       {selectedPlan && (
@@ -939,7 +927,7 @@ export default function ExecutionPage() {
                   <option value="NA">N/A — Not Applicable</option>
                 </select>
                 <p className="muted small" style={{ margin: "0.25rem 0 0" }}>
-                  Tentukan persentase kepatuhan final berdasarkan bukti pemenuhan yang telah dievaluasi.
+                  Determine the final compliance percentage based on the evidence evaluated.
                 </p>
               </div>
 
@@ -952,7 +940,7 @@ export default function ExecutionPage() {
                   rows={3}
                   className="filter-input"
                   style={{ width: "100%", height: "auto" }}
-                  placeholder="Catatan verifikasi supervisor..."
+                  placeholder="Supervisor verification notes..."
                   value={verifyNotes}
                   onChange={(e) => setVerifyNotes(e.target.value)}
                 />

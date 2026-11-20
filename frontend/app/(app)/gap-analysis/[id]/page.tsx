@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
 import Lampiran1Modal from "@/components/reports/Lampiran1Modal";
+import { Toast } from "@/components/Toast";
 
 type DeptOption = { id: number; code: string; name: string };
 
@@ -1191,9 +1192,8 @@ export default function GapAnalysisDetailPage() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ fontSize: "1.1rem" }}>🏢</span>
             <span>
-              Regulasi ini juga terdaftar untuk Site Kalbe lain:
+              This regulation is also registered for other Kalbe sites:
             </span>
           </div>
           <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
@@ -1281,61 +1281,7 @@ export default function GapAnalysisDetailPage() {
         </div>
       )}
 
-      {msg && (
-        <div
-          role="status"
-          style={{
-            position: "fixed",
-            top: "1.25rem",
-            right: "1.25rem",
-            zIndex: 10000,
-            maxWidth: "380px",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "0.65rem",
-            padding: "0.8rem 1rem",
-            borderRadius: "10px",
-            background: msg.type === "ok" ? "var(--surface)" : "var(--err-bg)",
-            border: `1px solid ${msg.type === "ok" ? "var(--border)" : "var(--err-border)"}`,
-            color: msg.type === "ok" ? "var(--text)" : "var(--err-text)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-            fontSize: "0.85rem",
-            lineHeight: 1.4,
-          }}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: msg.type === "ok" ? "var(--ok)" : "var(--err-text)" }}>
-            {msg.type === "ok" ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-            )}
-          </span>
-          <span style={{ flex: 1 }}>{msg.text}</span>
-          <button
-            type="button"
-            onClick={() => setMsg(null)}
-            aria-label="Close notification"
-            style={{
-              background: "none",
-              border: "none",
-              color: "inherit",
-              cursor: "pointer",
-              fontSize: "1rem",
-              lineHeight: 1,
-              padding: 0,
-              opacity: 0.7,
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )}
+      <Toast toast={msg} onClose={() => setMsg(null)} />
 
       {/* Compliance Level Banner (WI Formula) */}
       <div className="stat-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(11rem, 1fr))", margin: "1rem 0" }}>

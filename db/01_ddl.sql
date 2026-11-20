@@ -16,24 +16,24 @@ SET search_path = gap, public;
 -- -----------------------------------------------------------------------------
 -- 0. ENUM TYPES
 -- -----------------------------------------------------------------------------
-CREATE TYPE regulation_type    AS ENUM ('CHAPTER_ARTICLE', 'NUMBERED_STANDARD', 'INTERNAL_DOC');   -- 007A
-CREATE TYPE document_status    AS ENUM ('NEW', 'REVISION');                                        -- 007A
-CREATE TYPE clause_source      AS ENUM ('AUTO', 'MANUAL');                                         -- 007B / 007C
-CREATE TYPE clause_change_type AS ENUM ('NEW', 'CHANGED', 'UNCHANGED', 'REQUIRES_CHECK');          -- 007D
-CREATE TYPE gap_status         AS ENUM ('100', '50', '0', 'NA');                                   -- 008A (INFO ada di regulation_clause.is_info)
+CREATE TYPE regulation_type    AS ENUM ('CHAPTER_ARTICLE', 'NUMBERED_STANDARD', 'INTERNAL_DOC');   
+CREATE TYPE document_status    AS ENUM ('NEW', 'REVISION');                                        
+CREATE TYPE clause_source      AS ENUM ('AUTO', 'MANUAL');                                         
+CREATE TYPE clause_change_type AS ENUM ('NEW', 'CHANGED', 'UNCHANGED', 'REQUIRES_CHECK');          
+CREATE TYPE gap_status         AS ENUM ('100', '50', '0', 'NA');                                  
 CREATE TYPE gap_workflow_status AS ENUM (
     'DRAFT',                    -- Co Gap Staff menyusun gap analysis
     'ACTION_PLAN',              -- PIC Area mengisi action plan (juga tujuan saat reject Stage 1)
-    'SUPERVISOR_VERIFICATION',  -- Co Gap Supervisor verifikasi assessment (008C)
-    'APPROVAL_STAGE1',          -- Manager Area > Co Gap Manager > QA Manager > QO Head (009A)
-    'EXECUTION',                -- PIC Area menjalankan action plan + upload evidence (009B, juga tujuan saat reject Stage 2)
-    'APPROVAL_STAGE2',          -- Supervisor verify > Manager Area > Co Gap Manager > QA Manager (009C)
+    'SUPERVISOR_VERIFICATION',  -- Co Gap Supervisor verifikasi assessment
+    'APPROVAL_STAGE1',          -- Manager Area > Co Gap Manager > QA Manager > QO Head 
+    'EXECUTION',                -- PIC Area menjalankan action plan + upload evidence (juga tujuan saat reject Stage 2)
+    'APPROVAL_STAGE2',          -- Supervisor verify > Manager Area > Co Gap Manager > QA Manager
     'CLOSED',                   -- Gap closure
     'ARCHIVED'                  -- Digantikan revisi berikutnya (version history)
 );
 CREATE TYPE approval_stage     AS ENUM ('MASTER_LIST', 'STAGE1', 'STAGE2');
 CREATE TYPE approval_result    AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'SKIPPED');
-CREATE TYPE audit_action       AS ENUM ('NEW','ADD','REVISE','EDIT','UPDATE','DELETE','DEACTIVATE','VERIFY','APPROVE','REJECT','DELEGATION','LOGIN','LOGOUT');  -- 004A
+CREATE TYPE audit_action       AS ENUM ('NEW','ADD','REVISE','EDIT','UPDATE','DELETE','DEACTIVATE','VERIFY','APPROVE','REJECT','DELEGATION','LOGIN','LOGOUT'); 
 CREATE TYPE audit_activity     AS ENUM ('MASTER_LIST','UPLOAD_REGULATION','GAP_ANALYSIS_ACTION_PLAN','APPROVAL_STAGE1','APPROVAL_STAGE2',
                                         'SETTING_USERS','SETTING_DEPARTMENT','SETTING_CATEGORY_SITE','SETTING_DELEGATION','AUTH');
 CREATE TYPE notif_status       AS ENUM ('QUEUED', 'SENT', 'FAILED');
@@ -88,7 +88,7 @@ CREATE TABLE role (
     role_name VARCHAR(60) NOT NULL
 );
 
--- 002A: tujuh role aplikasi
+-- tujuh role aplikasi
 INSERT INTO role (role_code, role_name) VALUES
     ('CO_GAP_STAFF',      'Co Gap Staff'),
     ('CO_GAP_SUPERVISOR', 'Co Gap Supervisor / Halal Mgmt Rep'),
@@ -98,7 +98,7 @@ INSERT INTO role (role_code, role_name) VALUES
     ('QA_MANAGER',        'QA Manager'),
     ('QO_HEAD',           'QO Head');
 
--- Hak akses per role per modul (002B). Dipakai middleware otorisasi.
+-- Hak akses per role per modul. Dipakai middleware otorisasi.
 CREATE TABLE role_permission (
     role_id    SMALLINT    NOT NULL REFERENCES role(role_id),
     module     VARCHAR(40) NOT NULL,   -- DASHBOARD, MASTER_LIST, UPLOAD_REGULATION, GAP_ANALYSIS, DELEGATION, APPROVAL_S1, APPROVAL_S2, AUDIT_TRAIL, SETTING, ...
@@ -110,7 +110,7 @@ CREATE TABLE role_permission (
 );
 
 -- -----------------------------------------------------------------------------
--- 2. USERS & SESSION  (001A, 001B, 006A, 011A)
+-- 2. USERS & SESSION
 -- -----------------------------------------------------------------------------
 CREATE TABLE users (
     user_id               INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -121,9 +121,9 @@ CREATE TABLE users (
     role_id               SMALLINT     NOT NULL REFERENCES role(role_id),
     department_id         INT          REFERENCES department(department_id),
     site_id               SMALLINT     REFERENCES site(site_id),   -- [ASSUMPTION] 1 user = 1 site. Jika perlu multi-site, ganti dengan tabel user_site.
-    initials              VARCHAR(10),                              -- inisial PIC (008B)
+    initials              VARCHAR(10),                              -- inisial PIC
     password_hash         TEXT         NOT NULL,                    -- bcrypt/argon2, JANGAN simpan plaintext
-    must_change_password  BOOLEAN      NOT NULL DEFAULT TRUE,       -- default password KCH12345 -> wajib ganti saat login pertama
+    must_change_password  BOOLEAN      NOT NULL DEFAULT TRUE,       -- default password Gap12345 -> wajib ganti saat login pertama
     password_changed_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),      -- basis aturan ganti password 90 hari
     failed_login_count    SMALLINT     NOT NULL DEFAULT 0,
     locked_until          TIMESTAMPTZ,
@@ -138,7 +138,7 @@ CREATE UNIQUE INDEX uq_users_username ON users (lower(username));
 CREATE INDEX ix_users_role_site   ON users (role_id, site_id) WHERE is_active;
 CREATE INDEX ix_users_department  ON users (department_id);
 
-CREATE TABLE password_history (          -- mencegah pemakaian ulang password [ASSUMPTION: praktik GMP, tidak eksplisit di URS]
+CREATE TABLE password_history (          -- mencegah pemakaian ulang password
     password_history_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id       INT  NOT NULL REFERENCES users(user_id),
     password_hash TEXT NOT NULL,
@@ -146,7 +146,7 @@ CREATE TABLE password_history (          -- mencegah pemakaian ulang password [A
 );
 CREATE INDEX ix_password_history_user ON password_history (user_id, changed_at DESC);
 
-CREATE TABLE user_session (              -- 001B: expire setelah 30 menit tidak aktif
+CREATE TABLE user_session (              -- expire setelah 30 menit tidak aktif
     session_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id          INT NOT NULL REFERENCES users(user_id),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -159,7 +159,7 @@ CREATE INDEX ix_user_session_user    ON user_session (user_id);
 CREATE INDEX ix_user_session_expires ON user_session (expires_at) WHERE revoked_at IS NULL;
 
 -- -----------------------------------------------------------------------------
--- 3. REGULATION & CLAUSES  (007A - 007E)
+-- 3. REGULATION & CLAUSES  
 -- -----------------------------------------------------------------------------
 CREATE TABLE regulation (
     regulation_id        INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -169,15 +169,15 @@ CREATE TABLE regulation (
     legal_number         VARCHAR(150) NOT NULL,           -- lengkap dengan tahun/revisi; BUKAN unik (revisi memakai legal number yang sama)
     title                TEXT         NOT NULL,
     published_date       DATE,
-    previous_regulation_id INT        REFERENCES regulation(regulation_id),   -- 007D
+    previous_regulation_id INT        REFERENCES regulation(regulation_id),  
     pdf_file_path        TEXT         NOT NULL,
     pdf_sha256           CHAR(64),                        -- integritas file
-    read_mode            clause_source NOT NULL DEFAULT 'AUTO',               -- AUTO = dibaca sistem, MANUAL = diinput manual (007C)
+    read_mode            clause_source NOT NULL DEFAULT 'AUTO',               -- AUTO = dibaca sistem, MANUAL = diinput manual 
     uploaded_by          INT          NOT NULL REFERENCES users(user_id),
     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now()
     -- previous_regulation_id boleh kosong walau REVISION, jika Staff tidak menemukan versi lama
 );
-CREATE INDEX ix_regulation_legal_number ON regulation (lower(legal_number));   -- rekomendasi versi sebelumnya (007D)
+CREATE INDEX ix_regulation_legal_number ON regulation (lower(legal_number));   -- rekomendasi versi sebelumnya 
 CREATE INDEX ix_regulation_category     ON regulation (category_id);
 
 CREATE TABLE regulation_clause (
@@ -196,7 +196,7 @@ CREATE TABLE regulation_clause (
     CONSTRAINT uq_clause_number UNIQUE (regulation_id, clause_no)
 );
 CREATE INDEX ix_clause_regulation ON regulation_clause (regulation_id, sort_order);
--- pencarian kemiripan teks untuk perbandingan revisi (007D)
+-- pencarian kemiripan teks untuk perbandingan revisi 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX ix_clause_text_trgm ON regulation_clause USING gin (requirement_text gin_trgm_ops);
 
@@ -209,7 +209,7 @@ CREATE INDEX ix_clause_text_trgm ON regulation_clause USING gin (requirement_tex
 --   CCC  = running number dokumen gap pada kategori tsb di tahun gap dibuat (3 digit)
 --   DD   = nomor revisi terhadap legal number yang sama; 00 jika baru
 -- [ASSUMPTION] running number per (kategori, tahun) dipakai bersama semua site; tiap site mendapat nomor sendiri
---              karena gap dibuat terpisah per site (URS 007A). Konfirmasi jika numbering ingin per site.
+--              karena gap dibuat terpisah per site.
 CREATE TABLE gap_no_sequence (
     category_id SMALLINT NOT NULL REFERENCES category(category_id),
     gap_year    SMALLINT NOT NULL,
@@ -225,6 +225,15 @@ LANGUAGE sql AS $$
     RETURNING last_seq;
 $$;
 
+CREATE FUNCTION fn_format_gap_no(p_category_id SMALLINT, p_year SMALLINT, p_site_id SMALLINT, p_seq INT, p_rev SMALLINT) RETURNS TEXT
+LANGUAGE sql STABLE AS $$
+    SELECT 'GAP-' || c.category_code || '-' || lpad(p_year::text, 4, '0') || '-' || s.site_code || '-' || lpad(p_seq::text, 3, '0')
+           || '.' || lpad(p_rev::text, 2, '0')
+    FROM category c, site s
+    WHERE c.category_id = p_category_id AND s.site_id = p_site_id;
+$$;
+
+-- Fallback 4-arg overload (tanpa site_id)
 CREATE FUNCTION fn_format_gap_no(p_category_id SMALLINT, p_year SMALLINT, p_seq INT, p_rev SMALLINT) RETURNS TEXT
 LANGUAGE sql STABLE AS $$
     SELECT 'GAP-' || c.category_code || '-' || lpad(p_year::text, 4, '0') || '-' || lpad(p_seq::text, 3, '0')
@@ -234,7 +243,7 @@ $$;
 
 CREATE TABLE gap_document (
     gap_id           INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    gap_no           VARCHAR(30) NOT NULL UNIQUE,                -- GAP-QU-2026-001.00
+    gap_no           VARCHAR(30) NOT NULL UNIQUE,                -- GAP-QU-2026-CKR-001.00
     regulation_id    INT         NOT NULL REFERENCES regulation(regulation_id),
     site_id          SMALLINT    NOT NULL REFERENCES site(site_id),
     category_id      SMALLINT    NOT NULL REFERENCES category(category_id),
@@ -254,7 +263,7 @@ CREATE TABLE gap_document (
     created_by       INT         NOT NULL REFERENCES users(user_id),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT ck_gap_no_format CHECK (gap_no ~ '^GAP-(QU|HE|SA|EN|MG|HS)-[0-9]{4}-[0-9]{3}\.[0-9]{2}$'),
+    CONSTRAINT ck_gap_no_format CHECK (gap_no ~ '^GAP-(QU|HE|SA|EN|MG|HS)-[0-9]{4}-(CKR|PLG|PLM)-[0-9]{3}\.[0-9]{2}$'),
     CONSTRAINT uq_gap_regulation_site UNIQUE (regulation_id, site_id),
     CONSTRAINT uq_gap_seq_rev         UNIQUE (site_id, category_id, gap_year, seq_no, revision_no)
 );
@@ -313,7 +322,7 @@ CREATE TABLE master_list_item_department (                     -- kolom 9 "Inter
     PRIMARY KEY (master_list_item_id, department_id)
 );
 
-CREATE TABLE change_note (                 -- 007E: catatan perubahan, dipertahankan semua revisi
+CREATE TABLE change_note (                 -- catatan perubahan, dipertahankan semua revisi
     change_note_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     gap_id          INT NOT NULL REFERENCES gap_document(gap_id) ON DELETE CASCADE,
     new_count       INT NOT NULL DEFAULT 0,
@@ -327,7 +336,7 @@ CREATE TABLE change_note (                 -- 007E: catatan perubahan, dipertaha
 CREATE INDEX ix_change_note_gap ON change_note (gap_id);
 
 -- -----------------------------------------------------------------------------
--- 5. GAP ANALYSIS & ACTION PLAN  (008A - 008C)
+-- 5. GAP ANALYSIS & ACTION PLAN 
 -- -----------------------------------------------------------------------------
 CREATE TABLE gap_analysis (
     gap_analysis_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -343,7 +352,7 @@ CREATE TABLE gap_analysis (
     co_dept_all         BOOLEAN NOT NULL DEFAULT FALSE, -- TRUE => All Co-Dept In Control
     proposed_status     gap_status,                     -- usulan sistem dari in_procedure + in_practice
     status              gap_status,                     -- status final (ditetapkan Co Gap Supervisor)
-    change_type         clause_change_type,             -- hasil perbandingan revisi (007D)
+    change_type         clause_change_type,             -- hasil perbandingan revisi
     carried_from_id     BIGINT REFERENCES gap_analysis(gap_analysis_id),   -- hasil penilaian revisi sebelumnya
     verified_by         INT REFERENCES users(user_id),
     verified_at         TIMESTAMPTZ,
@@ -385,7 +394,7 @@ CREATE TABLE action_plan (
     pic_user_id      INT    REFERENCES users(user_id),
     pic_initials     VARCHAR(10),
     due_date         DATE,
-    create_date      DATE   NOT NULL DEFAULT CURRENT_DATE,      -- titik awal lead time (008B)
+    create_date      DATE   NOT NULL DEFAULT CURRENT_DATE,      -- titik awal lead time 
     progress_pct     SMALLINT NOT NULL DEFAULT 0 CHECK (progress_pct BETWEEN 0 AND 100),
     execution_status VARCHAR(40) NOT NULL DEFAULT 'IN_PROGRESS',
     progress_notes   TEXT,
@@ -400,7 +409,7 @@ CREATE TABLE action_plan (
 CREATE UNIQUE INDEX uq_action_plan_ga ON action_plan (gap_analysis_id);
 CREATE INDEX ix_action_plan_pic_open ON action_plan (pic_user_id, due_date) WHERE close_date IS NULL;
 
-CREATE TABLE action_plan_due_change (      -- 002B: "Verify changes to action plan due dates"
+CREATE TABLE action_plan_due_change (      -- "Verify changes to action plan due dates"
     due_change_id  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     action_plan_id BIGINT NOT NULL REFERENCES action_plan(action_plan_id) ON DELETE CASCADE,
     old_due_date   DATE NOT NULL,
@@ -415,7 +424,7 @@ CREATE TABLE action_plan_due_change (      -- 002B: "Verify changes to action pl
 );
 CREATE INDEX ix_due_change_plan ON action_plan_due_change (action_plan_id);
 
-CREATE TABLE evidence (                    -- 009B / 009C: bukti tindakan korektif
+CREATE TABLE evidence (                    -- bukti tindakan korektif
     evidence_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     action_plan_id BIGINT NOT NULL REFERENCES action_plan(action_plan_id) ON DELETE CASCADE,
     evidence_type  VARCHAR(20) NOT NULL DEFAULT 'FILE', -- 'FILE' atau 'TEXT'
@@ -432,7 +441,7 @@ CREATE TABLE evidence (                    -- 009B / 009C: bukti tindakan korekt
 CREATE INDEX ix_evidence_plan ON evidence (action_plan_id);
 
 -- -----------------------------------------------------------------------------
--- 6. APPROVAL, DELEGATION, ERES  (009A, 009C, 011D)
+-- 6. APPROVAL, DELEGATION, ERES 
 -- -----------------------------------------------------------------------------
 -- Satu baris = satu langkah approval pada satu putaran (cycle).
 -- Stage 1 : Manager Area (tiap dept) -> Co Gap Manager -> QA Manager (site) -> QO Head   (berurutan)
@@ -489,7 +498,7 @@ CREATE UNIQUE INDEX uq_delegation_active ON delegation (original_user_id, role_i
 CREATE INDEX ix_delegation_delegate ON delegation (delegate_user_id) WHERE is_active;
 
 -- -----------------------------------------------------------------------------
--- 7. NOTIFICATION (email) (003A)
+-- 7. NOTIFICATION (email) 
 -- -----------------------------------------------------------------------------
 CREATE TABLE notification (
     notification_id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -510,7 +519,7 @@ CREATE INDEX ix_notification_queue ON notification (scheduled_at) WHERE status =
 CREATE INDEX ix_notification_user  ON notification (recipient_user_id, scheduled_at DESC);
 
 -- -----------------------------------------------------------------------------
--- 8. AUDIT TRAIL  (004A)  -  append-only
+-- 8. AUDIT TRAIL    -  append-only
 -- -----------------------------------------------------------------------------
 CREATE TABLE log_history (
     log_id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -697,7 +706,7 @@ END $$;
 -- -----------------------------------------------------------------------------
 -- 9. VIEWS  (dashboard, lead time, monitoring)
 -- -----------------------------------------------------------------------------
--- Tingkat kepatuhan per gap document (WI poin 3 "Perhitungan tingkat kepatuhan"; URS 005A).
+-- Tingkat kepatuhan per gap document (WI poin 3 "Perhitungan tingkat kepatuhan".
 -- Dilaporkan sebagai TIGA persentase, masing-masing dibagi total sub-klausul applicable:
 --     % 100 = n_100 / applicable,  % 50 = n_50 / applicable,  % 0 = n_0 / applicable
 -- (contoh WI: CPOB 350/587 = 59.63%, 163/587 = 27.77%, 74/587 = 12.61%).
@@ -733,7 +742,7 @@ FROM master_list_item i
 JOIN master_list_doc d ON d.master_list_doc_id = i.master_list_doc_id
 LEFT JOIN gap_document g ON g.gap_id = i.gap_id;
 
--- Monitoring action plan: lead time, overdue, status (004B)
+-- Monitoring action plan: lead time, overdue, status
 CREATE VIEW v_action_plan_monitoring AS
 SELECT ap.action_plan_id, ap.gap_analysis_id, ga.gap_id, g.gap_no, g.site_id, ga.dept_in_control_id,
        ap.pic_user_id, ap.pic_initials, ap.create_date, ap.due_date, ap.close_date,

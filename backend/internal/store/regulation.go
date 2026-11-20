@@ -186,6 +186,14 @@ func (s *Store) CreateRegulationWithGapDocs(ctx context.Context, actorUserID int
 
 		currentYear := time.Now().Year()
 
+		// Generate shared running sequence for this new regulation across all sites
+		var sharedSeqNo int
+		if req.DocStatus != "REVISION" {
+			if err := tx.QueryRow(ctx, `SELECT fn_next_gap_seq($1::smallint, $2::smallint)`, req.CategoryID, currentYear).Scan(&sharedSeqNo); err != nil {
+				return fmt.Errorf("generate gap seq: %w", err)
+			}
+		}
+
 		// 3. For each site, create a gap_document and registered master_list_item and gap_analysis rows
 		for _, siteID := range req.SiteIDs {
 			gapYear := currentYear
@@ -238,15 +246,19 @@ func (s *Store) CreateRegulationWithGapDocs(ctx context.Context, actorUserID int
 			}
 
 			if seqNo == 0 {
-				err := tx.QueryRow(ctx, `SELECT fn_next_gap_seq($1::smallint, $2::smallint)`, req.CategoryID, gapYear).Scan(&seqNo)
-				if err != nil {
-					return fmt.Errorf("generate gap seq: %w", err)
+				if sharedSeqNo > 0 {
+					seqNo = sharedSeqNo
+				} else {
+					err := tx.QueryRow(ctx, `SELECT fn_next_gap_seq($1::smallint, $2::smallint)`, req.CategoryID, gapYear).Scan(&seqNo)
+					if err != nil {
+						return fmt.Errorf("generate gap seq: %w", err)
+					}
 				}
 			}
 
 			var gapNo string
-			err = tx.QueryRow(ctx, `SELECT fn_format_gap_no($1::smallint, $2::smallint, $3, $4::smallint)`,
-				req.CategoryID, gapYear, seqNo, revNo).Scan(&gapNo)
+			err = tx.QueryRow(ctx, `SELECT fn_format_gap_no($1::smallint, $2::smallint, $3::smallint, $4, $5::smallint)`,
+				req.CategoryID, gapYear, siteID, seqNo, revNo).Scan(&gapNo)
 			if err != nil {
 				return fmt.Errorf("format gap no: %w", err)
 			}

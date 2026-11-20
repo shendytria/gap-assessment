@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSession } from "@/lib/session";
 import { api } from "@/lib/api";
 import Lampiran1Modal from "@/components/reports/Lampiran1Modal";
+import { Pagination } from "@/components/Pagination";
+import { Toast } from "@/components/Toast";
 
 type GapDocSummary = {
   gapId: number;
@@ -46,6 +48,8 @@ export default function GapAnalysisListPage() {
   const [staffTaskTab, setStaffTaskTab] = useState(false);
   const [selectedDocForPdf, setSelectedDocForPdf] = useState<any | null>(null);
   const [loadingPdfId, setLoadingPdfId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const canDownloadPdf =
     me?.user.role === "CO_GAP_STAFF" || me?.user.role === "CO_GAP_SUPERVISOR";
@@ -124,6 +128,7 @@ export default function GapAnalysisListPage() {
   };
 
   useEffect(() => {
+    setPage(1);
     loadData();
   }, [siteFilter, catFilter]);
 
@@ -146,6 +151,12 @@ export default function GapAnalysisListPage() {
     : statusFilter
     ? (items || []).filter((d) => d.workflowStatus === statusFilter)
     : items || [];
+
+  useEffect(() => {
+    setPage(1);
+  }, [siteFilter, catFilter, statusFilter, picActionTab, staffTaskTab]);
+
+  const pagedItems = visibleItems.slice((page - 1) * pageSize, page * pageSize);
 
   const getStatusBadge = (st: string) => {
     switch (st) {
@@ -174,53 +185,7 @@ export default function GapAnalysisListPage() {
 
   return (
     <main className="page">
-      {toast && (
-        <div
-          role="status"
-          style={{
-            position: "fixed",
-            top: "1.25rem",
-            right: "1.25rem",
-            zIndex: 10000,
-            maxWidth: "380px",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "0.65rem",
-            padding: "0.8rem 1rem",
-            borderRadius: "10px",
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            color: "var(--text)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-            fontSize: "0.85rem",
-            lineHeight: 1.4,
-          }}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: "var(--ok)" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </span>
-          <span style={{ flex: 1 }}>{toast}</span>
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            aria-label="Close notification"
-            style={{
-              background: "none",
-              border: "none",
-              color: "inherit",
-              cursor: "pointer",
-              fontSize: "1rem",
-              lineHeight: 1,
-              padding: 0,
-              opacity: 0.7,
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )}
+      <Toast toast={toast} onClose={() => setToast(null)} />
       <div className="toolbar">
         <div>
           <h1 className="page-title">Gap Analysis & Action Plan</h1>
@@ -381,7 +346,7 @@ export default function GapAnalysisListPage() {
                 </td>
               </tr>
             ) : (
-              visibleItems.map((doc) => (
+              pagedItems.map((doc) => (
                 <tr key={doc.gapId}>
                   <td>
                     <span className="badge badge-info">{doc.siteCode}</span>
@@ -457,6 +422,18 @@ export default function GapAnalysisListPage() {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={visibleItems.length}
+        disabled={loading}
+        onPageChange={setPage}
+        onPageSizeChange={(s) => {
+          setPageSize(s);
+          setPage(1);
+        }}
+      />
 
       {selectedDocForPdf && (
         <Lampiran1Modal

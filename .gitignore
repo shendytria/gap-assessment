@@ -12,6 +12,7 @@ Thumbs.db
 .env.local
 .env.*.local
 !.env.example
+!.env.production
 
 # Go build & binaries
 backend/bin/

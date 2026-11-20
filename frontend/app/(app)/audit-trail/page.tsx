@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
 
 type AuditItem = {
   logId: number;
@@ -32,6 +33,10 @@ export default function AuditTrailPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
   const [siteFilter, setSiteFilter] = useState("");
   const [activityFilter, setActivityFilter] = useState("");
   const [actionFilter, setActionFilter] = useState("");
@@ -46,6 +51,11 @@ export default function AuditTrailPage() {
       .catch(() => setSites([]));
   }, []);
 
+  // Reset to page 1 whenever filters change
+  useEffect(() => {
+    setPage(1);
+  }, [siteFilter, activityFilter, actionFilter, monthFilter, yearFilter]);
+
   const loadAudit = () => {
     setLoading(true);
     const params = new URLSearchParams();
@@ -54,7 +64,8 @@ export default function AuditTrailPage() {
     if (actionFilter) params.set("action", actionFilter);
     if (monthFilter) params.set("month", monthFilter);
     if (yearFilter) params.set("year", yearFilter);
-    params.set("limit", "100");
+    params.set("limit", String(pageSize));
+    params.set("offset", String((page - 1) * pageSize));
 
     api<AuditResponse>(`/api/audit-trail?${params.toString()}`)
       .then((res) => {
@@ -70,7 +81,7 @@ export default function AuditTrailPage() {
 
   useEffect(() => {
     loadAudit();
-  }, [siteFilter, activityFilter, actionFilter, monthFilter, yearFilter]);
+  }, [siteFilter, activityFilter, actionFilter, monthFilter, yearFilter, page, pageSize]);
 
   const getActionBadge = (act: string) => {
     switch (act) {
@@ -94,6 +105,10 @@ export default function AuditTrailPage() {
         return <span className="badge badge-gray">{act}</span>;
     }
   };
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const startRecord = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endRecord = Math.min(page * pageSize, total);
 
   return (
     <main className="page">
@@ -186,7 +201,7 @@ export default function AuditTrailPage() {
           </select>
         </div>
         <div className="muted small">
-          Showing <strong>{(items || []).length}</strong> of <strong>{total}</strong> records
+          Showing <strong>{startRecord}</strong>–<strong>{endRecord}</strong> of <strong>{total}</strong> records
         </div>
       </div>
 
@@ -247,6 +262,20 @@ export default function AuditTrailPage() {
           </tbody>
         </table>
       </div>
+
+      {total > 0 && (
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          disabled={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(newSize) => {
+            setPageSize(newSize);
+            setPage(1);
+          }}
+        />
+      )}
     </main>
   );
 }

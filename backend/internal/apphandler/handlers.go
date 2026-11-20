@@ -610,10 +610,7 @@ func (h *Handler) handleActOnApproval(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleListOutstandingActionPlans(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	var picUID *int
-	if r.URL.Query().Get("myOnly") == "true" {
-		picUID = &u.ID
-	}
+	myOnly := r.URL.Query().Get("myOnly") == "true"
 	var deptID, siteID *int
 	if d := r.URL.Query().Get("departmentId"); d != "" {
 		if id, err := strconv.Atoi(d); err == nil {
@@ -625,7 +622,7 @@ func (h *Handler) handleListOutstandingActionPlans(w http.ResponseWriter, r *htt
 			siteID = &id
 		}
 	}
-	list, err := h.db.ListOutstandingActionPlans(r.Context(), u, picUID, deptID, siteID)
+	list, err := h.db.ListOutstandingActionPlans(r.Context(), u, myOnly, deptID, siteID)
 	if err != nil {
 		httpx.Fail(w, err)
 		return

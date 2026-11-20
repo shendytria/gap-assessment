@@ -108,10 +108,14 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 	d.UserPendingApprovals = apprs
 	d.PendingApprovals = len(apprs)
 
-	// Outstanding plans & workflow tasks for user
+	// Outstanding plans for PIC Area
 	actorUser, _ := s.UserByID(ctx, userID)
-	plans, _ := s.ListOutstandingActionPlans(ctx, actorUser, &userID, nil, siteID)
-	d.UserOutstandingPlans = plans
+	if actorUser != nil && actorUser.RoleCode == "PIC_AREA" {
+		plans, _ := s.ListOutstandingActionPlans(ctx, actorUser, true, nil, siteID)
+		d.UserOutstandingPlans = plans
+	} else {
+		d.UserOutstandingPlans = []ActionPlanItem{}
+	}
 
 	if actorUser != nil {
 		switch actorUser.RoleCode {
@@ -176,7 +180,7 @@ func (s *Store) GetDashboardData(ctx context.Context, userID int, siteID, catego
 				rows.Close()
 			}
 
-			allExec, errExec := s.ListOutstandingActionPlans(ctx, actorUser, nil, nil, siteID)
+			allExec, errExec := s.ListOutstandingActionPlans(ctx, actorUser, false, nil, siteID)
 			if errExec == nil {
 				for _, item := range allExec {
 					if item.ExecutionStatus == "PENDING_VERIFICATION" || item.PendingDueChange != nil {

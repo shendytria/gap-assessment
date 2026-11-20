@@ -9,11 +9,11 @@ import (
 )
 
 const (
-	MinPasswordLength = 8  // URS 001A: minimal 8 karakter
+	MinPasswordLength = 8  // minimal 8 karakter
 	maxPasswordBytes  = 72 // batas bcrypt; lebih panjang akan terpotong diam-diam
 )
 
-// PolicyViolations memeriksa password baru terhadap URS 001A:
+// PolicyViolations memeriksa password baru terhadap:
 //   - minimal 8 karakter
 //   - kombinasi huruf kapital dan angka
 //

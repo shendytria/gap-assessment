@@ -5,6 +5,8 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import ApprovedStamp from "@/components/reports/ApprovedStamp";
+import { Pagination } from "@/components/Pagination";
+import { Toast } from "@/components/Toast";
 
 type ApprovalTask = {
   approvalId: number;
@@ -35,6 +37,9 @@ export default function ApprovalsPage() {
   const [tasks, setTasks] = useState<ApprovalTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"pending" | "all">("pending");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [toast, setToast] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   // Electronic Signature / Action modal
   const [selectedTask, setSelectedTask] = useState<ApprovalTask | null>(null);
@@ -54,8 +59,12 @@ export default function ApprovalsPage() {
   };
 
   useEffect(() => {
+    setPage(1);
     loadApprovals();
   }, [activeTab]);
+
+  const total = (tasks || []).length;
+  const pagedTasks = (tasks || []).slice((page - 1) * pageSize, page * pageSize);
 
   const openSignModal = (task: ApprovalTask, act: "APPROVE" | "REJECT") => {
     setSelectedTask(task);
@@ -89,6 +98,11 @@ export default function ApprovalsPage() {
           password,
         },
       });
+      const actText = decision === "APPROVE" ? "approved" : "rejected";
+      setToast({
+        type: decision === "APPROVE" ? "ok" : "err",
+        text: `Document ${selectedTask.gapNo} successfully ${actText}.`,
+      });
       setSelectedTask(null);
       loadApprovals();
     } catch (err: any) {
@@ -100,6 +114,7 @@ export default function ApprovalsPage() {
 
   return (
     <main className="page">
+      <Toast toast={toast} onClose={() => setToast(null)} />
       <div className="toolbar">
         <div>
           <h1 className="page-title">Approval & Monitoring</h1>
@@ -159,7 +174,7 @@ export default function ApprovalsPage() {
                 </td>
               </tr>
             ) : (
-              (tasks || []).map((t) => {
+              pagedTasks.map((t) => {
                 const resBadge =
                   t.result === "APPROVED"
                     ? "badge-ok"
@@ -274,6 +289,18 @@ export default function ApprovalsPage() {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        disabled={loading}
+        onPageChange={setPage}
+        onPageSizeChange={(s) => {
+          setPageSize(s);
+          setPage(1);
+        }}
+      />
 
       {/* Electronic Signature Modal */}
       {selectedTask && (

@@ -1,8 +1,8 @@
 -- =============================================================================
 -- GAP ASSESSMENT ONLINE - Seed data (jalankan SETELAH gap_assessment_online_ddl.sql)
--- Sumber : URS 002A/002B (role & hak akses), WI-QO-QS-1023.04 poin 2g (kode departemen)
+-- Sumber : URS (role & hak akses), WI-QO-QS-1023.04 poin 2g (kode departemen)
 -- Catatan: role & kategori sudah di-seed di file DDL.
---          User awal TIDAK di-seed di sini: password default (KCH12345) harus di-hash oleh aplikasi.
+--          User awal TIDAK di-seed di sini: password default (Gap12345) harus di-hash oleh aplikasi.
 -- =============================================================================
 BEGIN;
 SET search_path = gap, public;
@@ -13,9 +13,8 @@ INSERT INTO site (site_code, site_name) VALUES
     ('PLG', 'Pulogadung'),
     ('PLM', 'Pulomas');
 
--- 2. Departemen (WI 2g) - sama untuk setiap site ---------------------------------
--- [ASSUMPTION] dikonfirmasi "sama" untuk CKR & PLG; PLM diperlakukan sama. Nonaktifkan lewat Setting jika ada yang tidak berlaku.
--- Kode "WH" di WI tertulis tanpa nama lengkap -> diisi "Warehouse".
+-- 2. Departemen (Mulai dari 0, diisi mandiri oleh Administrator via menu Settings)
+-- (Tabel departemen dibiarkan kosong agar admin dapat mengonfigurasi departemen sesuai kebutuhan riil)
 CREATE TEMP TABLE _dept (code VARCHAR(20), name VARCHAR(150)) ON COMMIT DROP;
 INSERT INTO _dept VALUES
     ('AD','Analytical Development'),
@@ -47,8 +46,8 @@ INSERT INTO _dept VALUES
 INSERT INTO department (department_code, department_name, site_id)
 SELECT d.code, d.name, s.site_id FROM _dept d CROSS JOIN site s;
 
--- 3. Hak akses role x modul (URS 002B) --------------------------------------------
--- PDF hanya boleh diunduh Co Gap Staff & Co Gap Supervisor (URS 010A); role lain view-only.
+-- 3. Hak akses role x modul --------------------------------------------
+-- PDF hanya boleh diunduh Co Gap Staff & Co Gap Supervisor ; role lain view-only.
 -- can_approve = berhak approve/reject pada modul approval tsb (atau electronic review Master List).
 CREATE TEMP TABLE _perm (role_code TEXT, module TEXT, v BOOL, e BOOL, a BOOL, pdf BOOL) ON COMMIT DROP;
 INSERT INTO _perm VALUES
@@ -60,15 +59,18 @@ INSERT INTO _perm VALUES
  ('CO_GAP_STAFF','DELEGATION',           TRUE, TRUE,  FALSE, FALSE),
  ('CO_GAP_STAFF','AUDIT_TRAIL',          TRUE, FALSE, FALSE, TRUE),
  ('CO_GAP_STAFF','SETTING',              TRUE, FALSE, FALSE, FALSE),
- -- Co Gap Supervisor
- ('CO_GAP_SUPERVISOR','DASHBOARD',       TRUE, FALSE, FALSE, TRUE),
- ('CO_GAP_SUPERVISOR','MASTER_LIST',     TRUE, TRUE,  FALSE, TRUE),   -- review & finalize
- ('CO_GAP_SUPERVISOR','GAP_ANALYSIS',    TRUE, TRUE,  FALSE, FALSE),  -- verifikasi, status final, verifikasi perubahan due date
- ('CO_GAP_SUPERVISOR','DELEGATION',      TRUE, TRUE,  FALSE, FALSE),
- ('CO_GAP_SUPERVISOR','APPROVAL_S2',     TRUE, TRUE,  FALSE, FALSE),  -- verifikasi evidence (langkah awal Stage 2)
- ('CO_GAP_SUPERVISOR','MONITORING',      TRUE, TRUE,  FALSE, FALSE),
- ('CO_GAP_SUPERVISOR','AUDIT_TRAIL',     TRUE, FALSE, FALSE, TRUE),
- ('CO_GAP_SUPERVISOR','SETTING',         TRUE, TRUE,  FALSE, FALSE),  -- users, department, category & site, delegation
+ -- Co Gap Supervisor (Administrator - Akses Penuh ke Seluruh 11 Modul)
+ ('CO_GAP_SUPERVISOR','DASHBOARD',             TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','MASTER_LIST',           TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','UPLOAD_REGULATION',     TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','GAP_ANALYSIS',          TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','DELEGATION',            TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','APPROVAL_S1',           TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','APPROVAL_S2',           TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','OUTSTANDING_EXECUTION', TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','MONITORING',            TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','AUDIT_TRAIL',           TRUE, TRUE,  TRUE,  TRUE),
+ ('CO_GAP_SUPERVISOR','SETTING',               TRUE, TRUE,  TRUE,  TRUE),
  -- PIC Area
  ('PIC_AREA','DASHBOARD',                TRUE, FALSE, FALSE, FALSE),
  ('PIC_AREA','MASTER_LIST',              TRUE, FALSE, FALSE, FALSE),

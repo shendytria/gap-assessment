@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
 
 type MasterListItem = {
   masterListItemId: number;
@@ -36,6 +37,8 @@ export default function MasterListPage() {
   const [siteFilter, setSiteFilter] = useState("");
   const [catFilter, setCatFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const [sites, setSites] = useState<{ id: number; code: string; name: string }[]>([]);
   const [categories, setCategories] = useState<{ id: number; code: string; name: string }[]>([]);
@@ -70,8 +73,12 @@ export default function MasterListPage() {
   };
 
   useEffect(() => {
+    setPage(1);
     loadData();
   }, [siteFilter, catFilter, yearFilter, search]);
+
+  const total = (items || []).length;
+  const pagedItems = (items || []).slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <main className="page">
@@ -167,7 +174,7 @@ export default function MasterListPage() {
                 </td>
               </tr>
             ) : (
-              (items || []).map((item, idx) => {
+              pagedItems.map((item, idx) => {
                 const badgeClass =
                   item.fulfillmentStatus === "Closed"
                     ? "badge-ok"
@@ -176,7 +183,7 @@ export default function MasterListPage() {
                     : "badge-gray";
                 return (
                   <tr key={item.masterListItemId}>
-                    <td>{idx + 1}</td>
+                    <td>{(page - 1) * pageSize + idx + 1}</td>
                     <td>
                       <span className="badge badge-info">{item.siteCode}</span>
                     </td>
@@ -228,6 +235,18 @@ export default function MasterListPage() {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        disabled={loading}
+        onPageChange={setPage}
+        onPageSizeChange={(s) => {
+          setPageSize(s);
+          setPage(1);
+        }}
+      />
     </main>
   );
 }

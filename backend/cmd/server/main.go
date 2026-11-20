@@ -43,6 +43,10 @@ func run() error {
 		return err
 	}
 
+	if err := db.BootstrapAdmin(ctx, cfg.InitialAdminUsername, cfg.InitialAdminEmail, cfg.InitialAdminFullName, cfg.InitialAdminPassword, cfg.BcryptCost); err != nil {
+		slog.Warn("bootstrap admin", "err", err)
+	}
+
 	svc, err := auth.NewService(cfg, db, os.Getenv("TRUST_PROXY") == "1")
 	if err != nil {
 		return err

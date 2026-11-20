@@ -458,7 +458,7 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {(me.user.role === "PIC_AREA" || (data?.userOutstandingPlans?.length || 0) > 0) && (
+          {me.user.role === "PIC_AREA" && (
             <section className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
                 <h2>Action Plan Execution</h2>

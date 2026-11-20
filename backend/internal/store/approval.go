@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"gapapp/internal/httpx"
@@ -137,10 +138,10 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 		}
 		if wfStatus == "ARCHIVED" {
 			_, _ = tx.Exec(ctx, `UPDATE approval SET result = 'SKIPPED' WHERE gap_id = $1 AND result = 'PENDING'`, gapID)
-			return httpx.NewError(http.StatusConflict, "DOCUMENT_ARCHIVED", "Dokumen ini sudah diarsipkan (digantikan revisi terbaru) sehingga tidak dapat diproses lagi.")
+			return httpx.NewError(http.StatusConflict, "DOCUMENT_ARCHIVED", "This document has already been archived (replaced by a newer revision) and cannot be processed anymore.")
 		}
 		if (stage == "STAGE1" && wfStatus != "APPROVAL_STAGE1") || (stage == "STAGE2" && wfStatus != "APPROVAL_STAGE2") {
-			return httpx.NewError(http.StatusConflict, "INVALID_STATE", fmt.Sprintf("Dokumen saat ini berstatus %s, bukan tahap %s.", wfStatus, stage))
+			return httpx.NewError(http.StatusConflict, "INVALID_STATE", fmt.Sprintf("The document is currently in status %s, not in stage %s.", wfStatus, stage))
 		}
 
 		// Enforce sequential approval order: all previous steps in the same cycle must already be approved or skipped
@@ -153,7 +154,7 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 			gapID, stage, cycle, stepSeq).Scan(&priorUnapprovedCount)
 		if priorUnapprovedCount > 0 {
 			return httpx.NewError(http.StatusConflict, "NOT_YOUR_TURN",
-				"Approval dilakukan berjenjang. Tahap sebelumnya belum disetujui.")
+				"Approval is carried out sequentially. The previous stage has not been approved yet.")
 		}
 
 		// Check if actor is assigned user or valid delegate
@@ -247,17 +248,17 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 				if stage == "STAGE1" {
 					_ = notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, docSiteID,
 						fmt.Sprintf("[%s] Stage 1 Ditolak - Revisi Action Plan", gapNo),
-						fmt.Sprintf("Dokumen %s ditolak pada Approval Stage 1 (%s). Silakan perbaiki Action Plan.", gapNo, notes))
+						fmt.Sprintf("Document %s rejected at Approval Stage 1 (%s). Please revise the Action Plan.", gapNo, notes))
 					_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "APPROVAL_REJECTED", &gapID, nil,
 						fmt.Sprintf("[%s] Stage 1 Ditolak", gapNo),
-						fmt.Sprintf("Dokumen %s ditolak pada Approval Stage 1 (%s) dan dikembalikan ke PIC Area.", gapNo, notes))
+						fmt.Sprintf("Document %s rejected at Approval Stage 1 (%s) and returned to PIC Area.", gapNo, notes))
 				} else if stage == "STAGE2" {
 					_ = notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, docSiteID,
 						fmt.Sprintf("[%s] Stage 2 Ditolak - Revisi Evidence", gapNo),
-						fmt.Sprintf("Evidence dokumen %s ditolak pada Approval Stage 2 (%s). Silakan perbarui evidence di Execution.", gapNo, notes))
+						fmt.Sprintf("Evidence document %s rejected at Approval Stage 2 (%s). Please update the evidence in the Execution section.", gapNo, notes))
 					_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "APPROVAL_REJECTED", &gapID, nil,
 						fmt.Sprintf("[%s] Stage 2 Ditolak", gapNo),
-						fmt.Sprintf("Approval Stage 2 dokumen %s ditolak (%s) dan dikembalikan ke tahap Execution.", gapNo, notes))
+						fmt.Sprintf("Approval Stage 2 document %s rejected (%s) and returned to the Execution stage.", gapNo, notes))
 				}
 			}
 			return nil
@@ -294,13 +295,13 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 					if gapNo != "" {
 						_ = notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, docSiteID,
 							fmt.Sprintf("[%s] Approved Stage 1 - Mulai Execution", gapNo),
-							fmt.Sprintf("Dokumen %s telah disetujui Stage 1. Silakan jalankan Action Plan dan unggah evidence di menu Execution.", gapNo))
+							fmt.Sprintf("Document %s has been approved at Stage 1. Please execute the Action Plan and upload evidence in the Execution section.", gapNo))
 						_ = notifySupervisorsForSiteTx(ctx, tx, docSiteID, "STAGE1_APPROVED", &gapID, nil,
 							fmt.Sprintf("[%s] Approved Stage 1", gapNo),
-							fmt.Sprintf("Dokumen %s telah menyelesaikan Approval Stage 1 dan masuk ke tahap Execution.", gapNo))
+							fmt.Sprintf("Document %s has completed Approval Stage 1 and moved to the Execution stage.", gapNo))
 						_ = notifyStaffForSiteTx(ctx, tx, docSiteID, "STAGE1_APPROVED", &gapID,
 							fmt.Sprintf("[%s] Approved Stage 1", gapNo),
-							fmt.Sprintf("Dokumen %s telah menyelesaikan Approval Stage 1.", gapNo))
+							fmt.Sprintf("Document %s has completed Approval Stage 1.", gapNo))
 					}
 				} else {
 					// All 100% -> Skip Stage 2 and close directly!
@@ -353,8 +354,8 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 
 				for _, na := range nextApprovers {
 					_ = insertNotificationTx(ctx, tx, "APPROVAL_PENDING", na.uid, &gapID, nil,
-						fmt.Sprintf("[%s] Menunggu Approval %s", gapNo, stage),
-						fmt.Sprintf("Dokumen %s menunggu tanda tangan/approval Anda pada tahap %s (%s).", gapNo, stage, na.roleName))
+						fmt.Sprintf("[%s] Awaiting Approval %s", gapNo, stage),
+						fmt.Sprintf("Document %s is awaiting your signature/approval at stage %s (%s).", gapNo, stage, na.roleName))
 				}
 			}
 		}
@@ -367,36 +368,77 @@ func (s *Store) ActOnApproval(ctx context.Context, actorUserID int, approvalID i
 func createApprovalChainTx(ctx context.Context, tx pgx.Tx, gapID int, gapNo string, stage string, cycle int, siteID int, reqQA bool) error {
 	// Step 1: Manager Area for all involved departments on the document site
 	deptRows, err := tx.Query(ctx, `
-		SELECT DISTINCT d.department_id, u.user_id, r.role_id
-		FROM gap_analysis ga
-		JOIN department d ON (
-			d.department_id = ga.dept_in_control_id
-			OR EXISTS (SELECT 1 FROM gap_analysis_dept gd WHERE gd.gap_analysis_id = ga.gap_analysis_id AND gd.department_id = d.department_id)
-			OR EXISTS (SELECT 1 FROM gap_analysis_co_dept gco WHERE gco.gap_analysis_id = ga.gap_analysis_id AND gco.department_id = d.department_id)
-			OR ((ga.dept_in_control_all OR ga.co_dept_all) AND d.site_id = $2 AND d.is_active = TRUE)
-		)
-		JOIN users u ON u.department_id = d.department_id AND u.site_id = $2
-		JOIN role r ON r.role_id = u.role_id AND r.role_code = 'MANAGER_AREA'
-		WHERE ga.gap_id = $1 AND ga.is_applicable AND u.is_active = TRUE`, gapID, siteID)
+		SELECT DISTINCT d.department_id, d.department_name, u.user_id, r.role_id
+		FROM (
+			SELECT gd.department_id AS dept_id
+			FROM gap_analysis ga
+			JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+			JOIN gap_analysis_dept gd ON gd.gap_analysis_id = ga.gap_analysis_id
+			WHERE ga.gap_id = $1 AND ga.is_applicable = TRUE AND rc.is_info = FALSE
+			UNION
+			SELECT ga.dept_in_control_id AS dept_id
+			FROM gap_analysis ga
+			JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+			WHERE ga.gap_id = $1 AND ga.is_applicable = TRUE AND rc.is_info = FALSE AND ga.dept_in_control_id IS NOT NULL
+			UNION
+			SELECT gco.department_id AS dept_id
+			FROM gap_analysis ga
+			JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+			JOIN gap_analysis_co_dept gco ON gco.gap_analysis_id = ga.gap_analysis_id
+			WHERE ga.gap_id = $1 AND ga.is_applicable = TRUE AND rc.is_info = FALSE
+			UNION
+			SELECT d2.department_id AS dept_id
+			FROM gap_analysis ga
+			JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+			CROSS JOIN department d2
+			WHERE ga.gap_id = $1 AND ga.is_applicable = TRUE AND rc.is_info = FALSE
+			  AND (ga.dept_in_control_all OR ga.co_dept_all) AND d2.site_id = $2 AND d2.is_active = TRUE
+		) inv
+		JOIN department d ON d.department_id = inv.dept_id AND d.site_id = $2
+		LEFT JOIN (
+			users u
+			JOIN role r ON r.role_id = u.role_id AND r.role_code = 'MANAGER_AREA' AND u.is_active = TRUE
+		) ON u.department_id = d.department_id AND u.site_id = $2`, gapID, siteID)
 	if err != nil {
 		return err
 	}
+	defer deptRows.Close()
 
 	type mgrTarget struct{ deptID, userID, roleID int }
 	var mgrTargets []mgrTarget
+	deptHasMgr := map[int]bool{}
+	deptNames := map[int]string{}
 	for deptRows.Next() {
-		var dID, uID, rID int
-		if err := deptRows.Scan(&dID, &uID, &rID); err != nil {
-			deptRows.Close()
+		var dID int
+		var dName string
+		var uID, rID *int
+		if err := deptRows.Scan(&dID, &dName, &uID, &rID); err != nil {
 			return err
 		}
-		mgrTargets = append(mgrTargets, mgrTarget{dID, uID, rID})
+		deptNames[dID] = dName
+		if uID != nil && rID != nil {
+			deptHasMgr[dID] = true
+			mgrTargets = append(mgrTargets, mgrTarget{dID, *uID, *rID})
+		}
 	}
 	if err := deptRows.Err(); err != nil {
-		deptRows.Close()
 		return err
 	}
-	deptRows.Close()
+
+	var missingDepts []string
+	for dID, dName := range deptNames {
+		if !deptHasMgr[dID] {
+			missingDepts = append(missingDepts, dName)
+		}
+	}
+	if len(missingDepts) > 0 {
+		return httpx.NewError(http.StatusBadRequest, "MISSING_APPROVER",
+			fmt.Sprintf("Cannot submit approval: Department (%s) at this site does not have an active Manager Area user. Please register a Manager Area user in the Settings menu first.", strings.Join(missingDepts, ", ")))
+	}
+	if len(mgrTargets) == 0 {
+		return httpx.NewError(http.StatusBadRequest, "MISSING_APPROVER",
+			"Cannot submit approval: There are no related departments or Manager Area users for this document.")
+	}
 
 	notifiedUsers := map[int]bool{}
 	for _, mt := range mgrTargets {
@@ -409,39 +451,52 @@ func createApprovalChainTx(ctx context.Context, tx pgx.Tx, gapID int, gapNo stri
 		if !notifiedUsers[mt.userID] {
 			notifiedUsers[mt.userID] = true
 			_ = insertNotificationTx(ctx, tx, "APPROVAL_PENDING", mt.userID, &gapID, nil,
-				fmt.Sprintf("[%s] Menunggu Approval %s", gapNo, stage),
-				fmt.Sprintf("Dokumen %s menunggu tanda tangan/approval Anda pada tahap %s.", gapNo, stage))
+				fmt.Sprintf("[%s] Awaiting Approval %s", gapNo, stage),
+				fmt.Sprintf("Document %s is awaiting your signature/approval at stage %s.", gapNo, stage))
 		}
 	}
 
-	// Step 2: Co Gap Manager
+	// Step 2: Co Gap Manager (Quality System)
 	var coGapMgrID, coGapRoleID int
-	if err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT u.user_id, r.role_id FROM users u
 		JOIN role r ON r.role_id = u.role_id
-		WHERE r.role_code = 'CO_GAP_MANAGER' AND u.is_active = TRUE LIMIT 1`).Scan(&coGapMgrID, &coGapRoleID); err == nil {
+		WHERE r.role_code = 'CO_GAP_MANAGER' AND u.is_active = TRUE LIMIT 1`).Scan(&coGapMgrID, &coGapRoleID)
+	if err != nil {
+		return httpx.NewError(http.StatusBadRequest, "MISSING_APPROVER",
+			"Cannot submit approval: There is no active user with the role Co Gap Manager (Quality System).")
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, assigned_user_id, result)
+		VALUES ($1, $2::approval_stage, $3, 2, $4, $5, 'PENDING')
+		ON CONFLICT DO NOTHING`, gapID, stage, cycle, coGapRoleID, coGapMgrID); err != nil {
+		return err
+	}
+
+	// Step 3: QA Manager (site) - mandatory for Quality / Manufacturing / Halal, skipped if HSE
+	var qaMgrID, qaRoleID int
+	err = tx.QueryRow(ctx, `
+		SELECT u.user_id, r.role_id FROM users u
+		JOIN role r ON r.role_id = u.role_id
+		WHERE r.role_code = 'QA_MANAGER' AND u.site_id = $1 AND u.is_active = TRUE LIMIT 1`, siteID).Scan(&qaMgrID, &qaRoleID)
+	if reqQA {
+		if err != nil {
+			var siteCode string
+			_ = tx.QueryRow(ctx, `SELECT site_code FROM site WHERE site_id = $1`, siteID).Scan(&siteCode)
+			return httpx.NewError(http.StatusBadRequest, "MISSING_APPROVER",
+				fmt.Sprintf("Cannot submit approval: There is no active user with the role QA Manager on site %s.", siteCode))
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, assigned_user_id, result)
-			VALUES ($1, $2::approval_stage, $3, 2, $4, $5, 'PENDING')
-			ON CONFLICT DO NOTHING`, gapID, stage, cycle, coGapRoleID, coGapMgrID); err != nil {
+			VALUES ($1, $2::approval_stage, $3, 3, $4, $5, 'PENDING')
+			ON CONFLICT DO NOTHING`, gapID, stage, cycle, qaRoleID, qaMgrID); err != nil {
 			return err
 		}
-	}
-
-	// Step 3: QA Manager (site) - skipped if HSE
-	var qaMgrID, qaRoleID int
-	if err := tx.QueryRow(ctx, `
-		SELECT u.user_id, r.role_id FROM users u
-		JOIN role r ON r.role_id = u.role_id
-		WHERE r.role_code = 'QA_MANAGER' AND u.site_id = $1 AND u.is_active = TRUE LIMIT 1`, siteID).Scan(&qaMgrID, &qaRoleID); err == nil {
-		qaResult := "PENDING"
-		if !reqQA {
-			qaResult = "SKIPPED"
-		}
+	} else if err == nil {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, assigned_user_id, result)
-			VALUES ($1, $2::approval_stage, $3, 3, $4, $5, $6::approval_result)
-			ON CONFLICT DO NOTHING`, gapID, stage, cycle, qaRoleID, qaMgrID, qaResult); err != nil {
+			VALUES ($1, $2::approval_stage, $3, 3, $4, $5, 'SKIPPED')
+			ON CONFLICT DO NOTHING`, gapID, stage, cycle, qaRoleID, qaMgrID); err != nil {
 			return err
 		}
 	}
@@ -449,16 +504,19 @@ func createApprovalChainTx(ctx context.Context, tx pgx.Tx, gapID int, gapNo stri
 	// Step 4: QO Head (only Stage 1 per WI)
 	if stage == "STAGE1" {
 		var qoHeadID, qoRoleID int
-		if err := tx.QueryRow(ctx, `
+		err = tx.QueryRow(ctx, `
 			SELECT u.user_id, r.role_id FROM users u
 			JOIN role r ON r.role_id = u.role_id
-			WHERE r.role_code = 'QO_HEAD' AND u.is_active = TRUE LIMIT 1`).Scan(&qoHeadID, &qoRoleID); err == nil {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, assigned_user_id, result)
-				VALUES ($1, $2::approval_stage, $3, 4, $4, $5, 'PENDING')
-				ON CONFLICT DO NOTHING`, gapID, stage, cycle, qoRoleID, qoHeadID); err != nil {
-				return err
-			}
+			WHERE r.role_code = 'QO_HEAD' AND u.is_active = TRUE LIMIT 1`).Scan(&qoHeadID, &qoRoleID)
+		if err != nil {
+			return httpx.NewError(http.StatusBadRequest, "MISSING_APPROVER",
+				"Cannot submit approval: There is no active user with the role QO Head.")
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO approval (gap_id, stage, cycle_no, step_seq, role_id, assigned_user_id, result)
+			VALUES ($1, $2::approval_stage, $3, 4, $4, $5, 'PENDING')
+			ON CONFLICT DO NOTHING`, gapID, stage, cycle, qoRoleID, qoHeadID); err != nil {
+			return err
 		}
 	}
 	return nil
