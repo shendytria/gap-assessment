@@ -86,6 +86,8 @@ export default function AppHeader() {
     setShowNotifs(false);
     if (n.eventType === "APPROVAL_PENDING") {
       router.push("/approvals");
+    } else if (n.eventType === "ACTION_PLAN_REQUIRED" && n.gapId) {
+      router.push(`/gap-analysis/${n.gapId}`);
     } else if (
       n.actionPlanId ||
       n.eventType.startsWith("ACTION_PLAN_") ||

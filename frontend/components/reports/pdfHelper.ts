@@ -1,5 +1,18 @@
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function exportToPdf(elementId: string, filename: string): Promise<void> {
   return new Promise((resolve) => {
+    if (!/^[a-zA-Z0-9_-]+$/.test(elementId)) {
+      resolve();
+      return;
+    }
     const element = document.getElementById(elementId);
     if (!element) {
       alert("Print document element not found.");
@@ -8,6 +21,7 @@ export function exportToPdf(elementId: string, filename: string): Promise<void> 
     }
 
     const cleanFilename = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+    const safeTitle = escapeHtml(cleanFilename);
 
     try {
       let iframe = document.getElementById("pdf-print-iframe") as HTMLIFrameElement;
@@ -37,7 +51,7 @@ export function exportToPdf(elementId: string, filename: string): Promise<void> 
         <html>
           <head>
             <meta charset="utf-8" />
-            <title>${cleanFilename}</title>
+            <title>${safeTitle}</title>
             <style>
               @page {
                 size: A4 landscape;

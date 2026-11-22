@@ -85,7 +85,9 @@ export default function GapAnalysisListPage() {
     } else if (t === "verified") {
       setToast("Assessment successfully verified and sent to Stage 1 Approval.");
     } else if (t === "sent_pic") {
-      setToast("Assessment checked and sent to PIC Area to fill Action Plan.");
+      setToast("Assessment sent to PIC Area to fill Action Plan.");
+    } else if (t === "returned_pic") {
+      setToast("Assessment returned to PIC Area with revision notes.");
     } else if (t === "returned") {
       setToast("Assessment returned to Staff (Draft) with revision notes.");
     }
@@ -361,7 +363,7 @@ export default function GapAnalysisListPage() {
                   <td>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "0.25rem" }}>
                       {getStatusBadge(doc.workflowStatus)}
-                      {doc.workflowStatus === "DRAFT" && doc.returnNotes && (
+                      {(doc.workflowStatus === "DRAFT" || doc.workflowStatus === "ACTION_PLAN") && doc.returnNotes && (
                         <span className="badge badge-err" title={doc.returnNotes}>
                           Returned
                         </span>

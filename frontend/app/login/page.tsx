@@ -98,6 +98,23 @@ function LoginForm() {
           Developed by <span style={{ fontWeight: 600, color: "var(--primary)" }}>Shendy Tria</span>
         </div>
       </form>
+
+      <footer
+        style={{
+          marginTop: "1rem",
+          width: "100%",
+          maxWidth: "24rem",
+          textAlign: "center",
+          fontSize: "0.5rem",
+          fontWeight: 600,
+          letterSpacing: "0.02em",
+          color: "#94a3b8",
+          textTransform: "uppercase",
+          whiteSpace: "nowrap",
+        }}
+      >
+        © 2026 GAP ASSESSMENT ONLINE. ALL RIGHTS RESERVED. KALBE CONSUMER HEALTH.
+      </footer>
     </main>
   );
 }

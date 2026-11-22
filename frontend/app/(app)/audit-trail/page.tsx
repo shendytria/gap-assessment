@@ -83,27 +83,11 @@ export default function AuditTrailPage() {
     loadAudit();
   }, [siteFilter, activityFilter, actionFilter, monthFilter, yearFilter, page, pageSize]);
 
-  const getActionBadge = (act: string) => {
-    switch (act) {
-      case "ADD":
-      case "NEW":
-        return <span className="badge badge-ok">{act}</span>;
-      case "EDIT":
-      case "UPDATE":
-      case "REVISE":
-        return <span className="badge badge-info">{act}</span>;
-      case "VERIFY":
-      case "APPROVE":
-        return <span className="badge badge-ok">{act}</span>;
-      case "REJECT":
-      case "DELETE":
-      case "DEACTIVATE":
-        return <span className="badge badge-err">{act}</span>;
-      case "DELEGATION":
-        return <span className="badge badge-warn">{act}</span>;
-      default:
-        return <span className="badge badge-gray">{act}</span>;
-    }
+  const formatDateTime = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -142,15 +126,11 @@ export default function AuditTrailPage() {
             onChange={(e) => setActivityFilter(e.target.value)}
           >
             <option value="">All Activities</option>
-            <option value="MASTER_LIST">Master List</option>
-            <option value="UPLOAD_REGULATION">Upload Regulation</option>
-            <option value="GAP_ANALYSIS_ACTION_PLAN">Gap Analysis & Action Plan</option>
+            <option value="UPLOAD_REGULATION">Regulations</option>
+            <option value="GAP_ANALYSIS_ACTION_PLAN">Gap Analysis &amp; Action Plan</option>
             <option value="APPROVAL_STAGE1">Approval Stage 1</option>
             <option value="APPROVAL_STAGE2">Approval Stage 2</option>
-            <option value="SETTING_USERS">Setting: Users</option>
-            <option value="SETTING_DEPARTMENT">Setting: Department</option>
-            <option value="SETTING_CATEGORY_SITE">Setting: Category & Site</option>
-            <option value="SETTING_DELEGATION">Setting: Delegation</option>
+            <option value="SETTING">Settings</option>
             <option value="AUTH">Authentication</option>
           </select>
 
@@ -206,38 +186,35 @@ export default function AuditTrailPage() {
       </div>
 
       <div className="table-wrap">
-        <table className="table">
+        <table className="table" style={{ tableLayout: "fixed", width: "100%" }}>
           <thead>
             <tr>
-              <th>Date & Time</th>
-              <th>User</th>
-              <th>Action</th>
-              <th>Activity</th>
-              <th>Site</th>
-              <th>Gap No</th>
+              <th style={{ width: "175px" }}>Date &amp; Time</th>
+              <th style={{ width: "220px" }}>User</th>
+              <th style={{ width: "95px" }}>Site</th>
               <th>Description</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }}>
+                <td colSpan={4} style={{ textAlign: "center", padding: "2rem" }}>
                   <span className="spinner" style={{ display: "inline-block", verticalAlign: "middle" }} /> Loading audit trail...
                 </td>
               </tr>
             ) : (items || []).length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }} className="muted">
+                <td colSpan={4} style={{ textAlign: "center", padding: "2rem" }} className="muted">
                   No audit log entries matching filters.
                 </td>
               </tr>
             ) : (
               (items || []).map((log) => (
                 <tr key={log.logId}>
-                  <td style={{ whiteSpace: "nowrap", fontSize: "0.8rem" }}>
-                    {new Date(log.occurredAt).toLocaleString()}
+                  <td style={{ whiteSpace: "nowrap", fontSize: "0.82rem" }}>
+                    {formatDateTime(log.occurredAt)}
                   </td>
-                  <td>
+                  <td style={{ overflowWrap: "anywhere" }}>
                     <strong>{log.userFullName || log.username || "System"}</strong>
                     {log.onBehalfOfName && (
                       <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
@@ -245,17 +222,12 @@ export default function AuditTrailPage() {
                       </div>
                     )}
                   </td>
-                  <td>{getActionBadge(log.action)}</td>
-                  <td>
-                    <span className="badge badge-gray">{log.activity}</span>
-                  </td>
-                  <td>
+                  <td style={{ whiteSpace: "nowrap" }}>
                     {log.siteCode ? <span className="badge badge-info">{log.siteCode}</span> : "—"}
                   </td>
-                  <td>
-                    {log.gapNo ? <code>{log.gapNo}</code> : <span className="muted">—</span>}
+                  <td style={{ fontSize: "0.85rem", lineHeight: 1.45, overflowWrap: "anywhere" }}>
+                    {log.description}
                   </td>
-                  <td style={{ maxWidth: "340px", fontSize: "0.825rem" }}>{log.description}</td>
                 </tr>
               ))
             )}

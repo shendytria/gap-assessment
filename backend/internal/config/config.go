@@ -2,7 +2,10 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -52,10 +55,19 @@ type Config struct {
 
 func Load() (*Config, error) {
 	loadDotEnv()
+	jwtSecret := env("JWT_SECRET_KEY", "")
+	if jwtSecret == "" {
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			return nil, fmt.Errorf("generate ephemeral JWT_SECRET_KEY: %w", err)
+		}
+		jwtSecret = hex.EncodeToString(buf)
+		slog.Warn("JWT_SECRET_KEY is not set; generated an ephemeral random secret for this process")
+	}
 	c := &Config{
 		DatabaseURL:          env("DATABASE_URL", ""),
 		Port:                 env("PORT", "8080"),
-		JWTSecretKey:         env("JWT_SECRET_KEY", "gap-assessment-production-secret-key-change-in-prod-2026"),
+		JWTSecretKey:         jwtSecret,
 		CookieName:           env("COOKIE_NAME", "gap_session"),
 		CookieSecure:         envBool("COOKIE_SECURE", true),
 		AllowedOrigins:       splitCSV(env("ALLOWED_ORIGINS", "http://localhost:3000")),

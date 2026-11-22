@@ -77,18 +77,24 @@ type GapAnalysisRow struct {
 	ExecutionStatus     string         `json:"executionStatus"`
 	EvidenceSummary     string         `json:"evidenceSummary"`
 	Evidences           []EvidenceItem `json:"evidences"`
-	ApVerifiedByName    string         `json:"apVerifiedByName"`
+	ApVerifiedByName     string         `json:"apVerifiedByName"`
+	ApVerifiedByInitials string         `json:"apVerifiedByInitials"`
 	VerifiedByName      string     `json:"verifiedByName"`
 	VerifiedAt          *time.Time `json:"verifiedAt"`
 	VerificationNotes   string     `json:"verificationNotes"`
 }
 
 type ChangeNoteItem struct {
-	ChangeNoteID int64  `json:"changeNoteId"`
-	NewCount     int    `json:"newCount"`
-	ChangedCount int    `json:"changedCount"`
-	DeletedCount int    `json:"deletedCount"`
-	ChangePoints string `json:"changePoints"`
+	ChangeNoteID  int64     `json:"changeNoteId"`
+	GapID         int       `json:"gapId"`
+	GapNo         string    `json:"gapNo"`
+	RevisionNo    int       `json:"revisionNo"`
+	EffectiveDate time.Time `json:"effectiveDate"`
+	NewCount      int       `json:"newCount"`
+	ChangedCount  int       `json:"changedCount"`
+	DeletedCount  int       `json:"deletedCount"`
+	ChangePoints  string    `json:"changePoints"`
+	CreatedAt     time.Time `json:"createdAt"`
 }
 
 type ApprovalSignatureItem struct {
@@ -269,7 +275,7 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 		           FROM evidence ev
 		           WHERE ev.action_plan_id = ap.action_plan_id AND ev.is_superseded = FALSE
 		       ), ''),
-		       COALESCE(u_apv.full_name,''),
+		       COALESCE(u_apv.full_name,''), COALESCE(u_apv.initials,''),
 		       COALESCE(uv.full_name,''), ga.verified_at, COALESCE(ga.verification_notes,'')
 		FROM gap_analysis ga
 		JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
@@ -298,7 +304,7 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 			&row.InProcedure, &row.InPractice, &row.ActualCondition, &row.RelatedDocument,
 			&row.ProposedStatus, &row.Status,
 			&row.ActionPlanID, &row.ActionPlanText, &row.PICUserID, &row.PICInitials, &row.DueDate,
-			&row.ExecutionStatus, &row.EvidenceSummary, &row.ApVerifiedByName,
+			&row.ExecutionStatus, &row.EvidenceSummary, &row.ApVerifiedByName, &row.ApVerifiedByInitials,
 			&row.VerifiedByName, &row.VerifiedAt, &row.VerificationNotes); err != nil {
 			return nil, err
 		}
@@ -399,15 +405,29 @@ func (s *Store) GetGapDocumentDetail(ctx context.Context, gapID int) (*GapDocume
 		d.Pct0 = float64(d.Count0) / float64(d.TotalApplicable) * 100
 	}
 
-	// Change notes (007E)
+	// Change notes across all revision cycles (URS 005E & 007C), newest first so [0] is the current revision
 	d.ChangeNotes = []ChangeNoteItem{}
 	cnRows, err := s.Pool.Query(ctx, `
-		SELECT change_note_id, new_count, changed_count, deleted_count, COALESCE(change_points, '')
-		FROM change_note WHERE gap_id = $1 ORDER BY change_note_id ASC`, gapID)
+		WITH RECURSIVE rev_chain AS (
+			SELECT g.gap_id, g.gap_no, g.revision_no, g.effective_date, g.previous_gap_id, 0 AS depth
+			FROM gap_document g
+			WHERE g.gap_id = $1
+			UNION ALL
+			SELECT pg.gap_id, pg.gap_no, pg.revision_no, pg.effective_date, pg.previous_gap_id, rc.depth + 1
+			FROM gap_document pg
+			JOIN rev_chain rc ON pg.gap_id = rc.previous_gap_id
+			WHERE rc.depth < 50
+		)
+		SELECT cn.change_note_id, rc.gap_id, rc.gap_no, rc.revision_no, rc.effective_date,
+		       cn.new_count, cn.changed_count, cn.deleted_count, COALESCE(cn.change_points, ''), cn.created_at
+		FROM rev_chain rc
+		JOIN change_note cn ON cn.gap_id = rc.gap_id
+		ORDER BY rc.revision_no DESC, cn.change_note_id DESC`, gapID)
 	if err == nil {
 		for cnRows.Next() {
 			var cn ChangeNoteItem
-			if cnRows.Scan(&cn.ChangeNoteID, &cn.NewCount, &cn.ChangedCount, &cn.DeletedCount, &cn.ChangePoints) == nil {
+			if cnRows.Scan(&cn.ChangeNoteID, &cn.GapID, &cn.GapNo, &cn.RevisionNo, &cn.EffectiveDate,
+				&cn.NewCount, &cn.ChangedCount, &cn.DeletedCount, &cn.ChangePoints, &cn.CreatedAt) == nil {
 				d.ChangeNotes = append(d.ChangeNotes, cn)
 			}
 		}
@@ -940,6 +960,44 @@ func (s *Store) SubmitGapDocument(ctx context.Context, actor *User, gapID int) (
 				return err
 			}
 
+			var needsPicActionPlan bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1
+					FROM gap_analysis ga
+					JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+					LEFT JOIN action_plan ap ON ap.gap_analysis_id = ga.gap_analysis_id
+					WHERE ga.gap_id = $1
+					  AND ga.is_applicable = TRUE
+					  AND rc.is_info = FALSE
+					  AND (ga.in_procedure = FALSE OR ga.in_practice = FALSE)
+					  AND (
+					      ap.action_plan_id IS NULL
+					      OR COALESCE(BTRIM(ap.plan_text), '') = ''
+					      OR ap.pic_user_id IS NULL
+					      OR ap.due_date IS NULL
+					  )
+				)`, gapID).Scan(&needsPicActionPlan); err != nil {
+				return err
+			}
+
+			if needsPicActionPlan {
+				nextStatus = "ACTION_PLAN"
+				if _, err := tx.Exec(ctx, `
+					UPDATE gap_document
+					SET workflow_status = 'ACTION_PLAN',
+					    submitted_at = now(),
+					    return_notes = NULL,
+					    returned_at = NULL,
+					    returned_by = NULL
+					WHERE gap_id = $1`, gapID); err != nil {
+					return err
+				}
+				return notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, siteID,
+					fmt.Sprintf("[%s] Isi Action Plan", gapNo),
+					fmt.Sprintf("Dokumen %s memiliki klausul di bawah 100%% dan siap dilengkapi Action Plan, PIC, serta Due Date oleh departemen Anda.", gapNo))
+			}
+
 			nextStatus = "SUPERVISOR_VERIFICATION"
 			if _, err := tx.Exec(ctx, `
 				UPDATE gap_document
@@ -952,8 +1010,8 @@ func (s *Store) SubmitGapDocument(ctx context.Context, actor *User, gapID int) (
 				return err
 			}
 			return notifySupervisorsForSiteTx(ctx, tx, siteID, "SUPERVISOR_VERIFICATION", &gapID, nil,
-				fmt.Sprintf("[%s] Cek & Verifikasi Gap Analysis", gapNo),
-				fmt.Sprintf("Dokumen %s telah disubmit ke Co Gap Supervisor untuk dicek dan diteruskan ke PIC Area / Stage 1.", gapNo))
+				fmt.Sprintf("[%s] Verifikasi Gap Assessment", gapNo),
+				fmt.Sprintf("Dokumen %s telah disubmit ke Co Gap Supervisor untuk diverifikasi sebelum Approval Stage 1.", gapNo))
 
 		case "ACTION_PLAN":
 			if actor.RoleCode != "PIC_AREA" {
@@ -1130,7 +1188,43 @@ func (s *Store) VerifyGapSupervisor(ctx context.Context, actorUserID int, actorR
 				return httpx.NewError(http.StatusBadRequest, "NO_ACTION_PLAN_NEEDED",
 					"Seluruh klausul sudah 100% atau N/A, tidak perlu dikirim ke PIC Area. Silakan pilih Approve Verification ke Stage 1.")
 			}
+			var hasIncompleteAP bool
+			_ = tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1
+					FROM gap_analysis ga
+					JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+					LEFT JOIN action_plan ap ON ap.gap_analysis_id = ga.gap_analysis_id
+					WHERE ga.gap_id = $1
+					  AND ga.is_applicable = TRUE
+					  AND rc.is_info = FALSE
+					  AND (ga.in_procedure = FALSE OR ga.in_practice = FALSE)
+					  AND (
+					      ap.action_plan_id IS NULL
+					      OR COALESCE(BTRIM(ap.plan_text), '') = ''
+					      OR ap.pic_user_id IS NULL
+					      OR ap.due_date IS NULL
+					  )
+				)`, gapID).Scan(&hasIncompleteAP)
+			trimmedNotes := strings.TrimSpace(returnNotes)
+			if !hasIncompleteAP && trimmedNotes == "" {
+				return httpx.NewError(http.StatusBadRequest, "NOTES_REQUIRED", "Catatan return ke PIC Area wajib diisi.")
+			}
 			nextStatus = "ACTION_PLAN"
+			if trimmedNotes != "" {
+				if _, err := tx.Exec(ctx, `
+					UPDATE gap_document
+					SET workflow_status = 'ACTION_PLAN',
+					    return_notes = $2,
+					    returned_at = now(),
+					    returned_by = $3
+					WHERE gap_id = $1`, gapID, trimmedNotes, actorUserID); err != nil {
+					return err
+				}
+				return notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, siteID,
+					fmt.Sprintf("[%s] Action Plan Dikembalikan oleh Supervisor", gapNo),
+					fmt.Sprintf("Dokumen %s dikembalikan ke PIC Area oleh Co Gap Supervisor untuk revisi Action Plan. Catatan: %s", gapNo, trimmedNotes))
+			}
 			if _, err := tx.Exec(ctx, `
 				UPDATE gap_document
 				SET workflow_status = 'ACTION_PLAN',
@@ -1142,7 +1236,7 @@ func (s *Store) VerifyGapSupervisor(ctx context.Context, actorUserID int, actorR
 			}
 			return notifyPICForActionPlanTx(ctx, tx, gapID, gapNo, siteID,
 				fmt.Sprintf("[%s] Isi Action Plan", gapNo),
-				fmt.Sprintf("Dokumen %s telah dicek Co Gap Supervisor dan memiliki klausul di bawah 100%%. Silakan lengkapi Action Plan, PIC, dan Due Date departemen Anda.", gapNo))
+				fmt.Sprintf("Dokumen %s memiliki klausul di bawah 100%% yang perlu dilengkapi Action Plan, PIC, dan Due Date departemen Anda.", gapNo))
 		}
 
 		if err := validateActionPlansBeforeAdvance(ctx, tx, gapID); err != nil {

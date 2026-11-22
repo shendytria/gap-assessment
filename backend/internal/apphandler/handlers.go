@@ -1,6 +1,7 @@
 package apphandler
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -20,6 +21,49 @@ import (
 	"gapapp/internal/store"
 )
 
+// resolveConfinedFile memastikan target file berada strictly di dalam baseDir
+// (mencegah Arbitrary File Read / Path Traversal termasuk via symlink).
+func resolveConfinedFile(baseDir, rawPath string) (string, error) {
+	if strings.TrimSpace(rawPath) == "" {
+		return "", httpx.NewError(http.StatusBadRequest, "INVALID_FILE_PATH", "File path is empty.")
+	}
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", err
+	}
+	absTarget, err := filepath.Abs(filepath.Clean(rawPath))
+	if err != nil {
+		return "", httpx.NewError(http.StatusBadRequest, "INVALID_FILE_PATH", "Invalid file path.")
+	}
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", httpx.NewError(http.StatusBadRequest, "INVALID_FILE_PATH", "File path is outside the allowed storage directory.")
+	}
+	info, err := os.Stat(absTarget)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", httpx.NewError(http.StatusNotFound, "NOT_FOUND", "File not found.")
+		}
+		return "", err
+	}
+	if info.IsDir() {
+		return "", httpx.NewError(http.StatusBadRequest, "INVALID_FILE_PATH", "Invalid file path.")
+	}
+	// Resolve symlink if baseDir exists on disk
+	if realBase, err := filepath.EvalSymlinks(absBase); err == nil {
+		realTarget, err := filepath.EvalSymlinks(absTarget)
+		if err != nil {
+			return "", httpx.NewError(http.StatusBadRequest, "INVALID_FILE_PATH", "Invalid file path.")
+		}
+		realRel, err := filepath.Rel(realBase, realTarget)
+		if err != nil || realRel == "." || realRel == ".." || strings.HasPrefix(realRel, ".."+string(filepath.Separator)) || filepath.IsAbs(realRel) {
+			return "", httpx.NewError(http.StatusBadRequest, "INVALID_FILE_PATH", "File path is outside the allowed storage directory.")
+		}
+		return realTarget, nil
+	}
+	return absTarget, nil
+}
+
 type Handler struct {
 	cfg   *config.Config
 	db    *store.Store
@@ -35,49 +79,52 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	authed := func(handler http.HandlerFunc) http.Handler {
 		return auth.Chain(handler, origin, h.auth.Authenticate, h.auth.RequirePasswordCurrent)
 	}
+	authedPerm := func(module, action string, handler http.HandlerFunc) http.Handler {
+		return auth.Chain(handler, origin, h.auth.Authenticate, h.auth.RequirePasswordCurrent, h.auth.RequirePermission(module, action))
+	}
 
 	// Master Data
 	mux.Handle("GET /api/sites", authed(h.handleListSites))
 	mux.Handle("GET /api/categories", authed(h.handleListCategories))
-	mux.Handle("GET /api/roles", authed(h.handleListRoles))
+	mux.Handle("GET /api/roles", authedPerm("SETTING", auth.ActionView, h.handleListRoles))
 	mux.Handle("GET /api/departments", authed(h.handleListDepartments))
-	mux.Handle("POST /api/departments", authed(h.handleSaveDepartment))
+	mux.Handle("POST /api/departments", authedPerm("SETTING", auth.ActionEdit, h.handleSaveDepartment))
 	mux.Handle("GET /api/users", authed(h.handleListUsers))
-	mux.Handle("POST /api/users", authed(h.handleCreateUser))
-	mux.Handle("PUT /api/users/{id}", authed(h.handleUpdateUser))
-	mux.Handle("GET /api/delegations", authed(h.handleListDelegations))
-	mux.Handle("POST /api/delegations", authed(h.handleCreateDelegation))
-	mux.Handle("DELETE /api/delegations/{id}", authed(h.handleRevokeDelegation))
+	mux.Handle("POST /api/users", authedPerm("SETTING", auth.ActionEdit, h.handleCreateUser))
+	mux.Handle("PUT /api/users/{id}", authedPerm("SETTING", auth.ActionEdit, h.handleUpdateUser))
+	mux.Handle("GET /api/delegations", authedPerm("DELEGATION", auth.ActionView, h.handleListDelegations))
+	mux.Handle("POST /api/delegations", authedPerm("DELEGATION", auth.ActionEdit, h.handleCreateDelegation))
+	mux.Handle("DELETE /api/delegations/{id}", authedPerm("DELEGATION", auth.ActionEdit, h.handleRevokeDelegation))
 
-	// Regulations & Clauses (007A-E)
-	mux.Handle("GET /api/regulations", authed(h.handleListRegulations))
-	mux.Handle("POST /api/regulations", authed(h.handleCreateRegulation))
-	mux.Handle("POST /api/regulations/parse-pdf", authed(h.handleParseRegulationPDF))
-	mux.Handle("GET /api/regulations/{id}", authed(h.handleGetRegulation))
+	// Regulations & Clauses (005A-E)
+	mux.Handle("GET /api/regulations", authedPerm("UPLOAD_REGULATION", auth.ActionView, h.handleListRegulations))
+	mux.Handle("POST /api/regulations", authedPerm("UPLOAD_REGULATION", auth.ActionEdit, h.handleCreateRegulation))
+	mux.Handle("POST /api/regulations/parse-pdf", authedPerm("UPLOAD_REGULATION", auth.ActionEdit, h.handleParseRegulationPDF))
+	mux.Handle("GET /api/regulations/{id}", authedPerm("UPLOAD_REGULATION", auth.ActionView, h.handleGetRegulation))
 	mux.Handle("GET /api/regulations/{id}/pdf", authed(h.handleDownloadRegulationPDF))
 
-	// Master List (010A, WI Lampiran 2)
-	mux.Handle("GET /api/master-list", authed(h.handleListMasterList))
+	// Master List (009A, WI Lampiran 2)
+	mux.Handle("GET /api/master-list", authedPerm("MASTER_LIST", auth.ActionView, h.handleListMasterList))
 
-	// Gap Document & Analysis (008A-C, WI Lampiran 1)
+	// Gap Document & Analysis (006A-C, WI Lampiran 1)
 	mux.Handle("GET /api/gap-documents", authed(h.handleListGapDocuments))
 	mux.Handle("GET /api/gap-documents/{id}", authed(h.handleGetGapDocument))
 	mux.Handle("GET /api/gap-documents/{id}/action-plans", authed(h.handleGetGapActionPlans))
-	mux.Handle("PUT /api/gap-documents/{id}/analysis", authed(h.handleSaveGapAnalysis))
-	mux.Handle("POST /api/gap-documents/{id}/submit", authed(h.handleSubmitGapDocument))
-	mux.Handle("POST /api/gap-documents/{id}/return-pic", authed(h.handleReturnGapToPic))
-	mux.Handle("POST /api/gap-documents/{id}/verify", authed(h.handleVerifyGapDocument))
+	mux.Handle("PUT /api/gap-documents/{id}/analysis", authedPerm("GAP_ANALYSIS", auth.ActionEdit, h.handleSaveGapAnalysis))
+	mux.Handle("POST /api/gap-documents/{id}/submit", authedPerm("GAP_ANALYSIS", auth.ActionEdit, h.handleSubmitGapDocument))
+	mux.Handle("POST /api/gap-documents/{id}/return-pic", authedPerm("GAP_ANALYSIS", auth.ActionEdit, h.handleReturnGapToPic))
+	mux.Handle("POST /api/gap-documents/{id}/verify", authedPerm("GAP_ANALYSIS", auth.ActionApprove, h.handleVerifyGapDocument))
 
-	// Approvals (009A, 009C)
+	// Approvals (007A-B)
 	mux.Handle("GET /api/approvals", authed(h.handleListApprovals))
 	mux.Handle("POST /api/approvals/{id}/act", authed(h.handleActOnApproval))
 
-	// Action Plan & Outstanding (009B, WI Lampiran 3)
+	// Action Plan & Outstanding (008A, WI Lampiran 3)
 	mux.Handle("GET /api/action-plans/outstanding", authed(h.handleListOutstandingActionPlans))
-	mux.Handle("PUT /api/action-plans/{id}", authed(h.handleUpdateActionPlan))
-	mux.Handle("POST /api/action-plans/{id}/verify", authed(h.handleVerifyActionPlan))
-	mux.Handle("POST /api/action-plans/{id}/due-change", authed(h.handleRequestDueDateChange))
-	mux.Handle("POST /api/due-changes/{id}/verify", authed(h.handleVerifyDueDateChange))
+	mux.Handle("PUT /api/action-plans/{id}", authedPerm("OUTSTANDING_EXECUTION", auth.ActionEdit, h.handleUpdateActionPlan))
+	mux.Handle("POST /api/action-plans/{id}/verify", authedPerm("OUTSTANDING_EXECUTION", auth.ActionApprove, h.handleVerifyActionPlan))
+	mux.Handle("POST /api/action-plans/{id}/due-change", authedPerm("OUTSTANDING_EXECUTION", auth.ActionEdit, h.handleRequestDueDateChange))
+	mux.Handle("POST /api/due-changes/{id}/verify", authedPerm("OUTSTANDING_EXECUTION", auth.ActionApprove, h.handleVerifyDueDateChange))
 	mux.Handle("GET /api/evidences/{id}/file", authed(h.handleDownloadEvidenceFile))
 
 	// Notifications
@@ -85,9 +132,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/notifications/{id}/read", authed(h.handleMarkNotificationRead))
 	mux.Handle("POST /api/notifications/read-all", authed(h.handleMarkAllNotificationsRead))
 
-	// Dashboard & Audit Trail (004A, 005A)
+	// Dashboard & Audit Trail (004A, 010A)
 	mux.Handle("GET /api/dashboard", authed(h.handleGetDashboard))
-	mux.Handle("GET /api/audit-trail", authed(h.handleListAuditTrail))
+	mux.Handle("GET /api/audit-trail", authedPerm("AUDIT_TRAIL", auth.ActionView, h.handleListAuditTrail))
 }
 
 // ------------------------------------------------ Master Data
@@ -278,6 +325,18 @@ func (h *Handler) handleCreateRegulation(w http.ResponseWriter, r *http.Request)
 		httpx.Fail(w, err)
 		return
 	}
+	if req.PdfFilePath != "" {
+		safePath, err := resolveConfinedFile("uploads/regulations", req.PdfFilePath)
+		if err != nil {
+			httpx.Fail(w, err)
+			return
+		}
+		if !strings.HasSuffix(strings.ToLower(safePath), ".pdf") {
+			httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "INVALID_FILE_PATH", "Regulation file must be a PDF inside uploads/regulations."))
+			return
+		}
+		req.PdfFilePath = filepath.Join("uploads/regulations", filepath.Base(safePath))
+	}
 	if req.ReadMode == "" {
 		req.ReadMode = "AUTO"
 	}
@@ -326,9 +385,19 @@ func (h *Handler) handleParseRegulationPDF(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	pdfBytes, err := io.ReadAll(file)
+	const maxRegPDFBytes = 32 << 20
+	pdfBytes, err := io.ReadAll(io.LimitReader(file, maxRegPDFBytes+1))
 	if err != nil {
 		httpx.Fail(w, httpx.NewError(http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to read uploaded file"))
+		return
+	}
+	if len(pdfBytes) > maxRegPDFBytes {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "FILE_TOO_LARGE", "PDF file exceeds 32MB limit"))
+		return
+	}
+	detected := http.DetectContentType(pdfBytes)
+	if detected != "application/pdf" && !bytes.HasPrefix(pdfBytes, []byte("%PDF-")) {
+		httpx.Fail(w, httpx.NewError(http.StatusBadRequest, "INVALID_FILE_TYPE", "Uploaded file is not a valid PDF document"))
 		return
 	}
 
@@ -388,9 +457,14 @@ func (h *Handler) handleDownloadRegulationPDF(w http.ResponseWriter, r *http.Req
 		httpx.Fail(w, httpx.NewError(http.StatusNotFound, "NOT_FOUND", "PDF file not available for this regulation"))
 		return
 	}
+	safePath, err := resolveConfinedFile("uploads/regulations", item.PdfFilePath)
+	if err != nil {
+		httpx.Fail(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filepath.Base(item.PdfFilePath)))
-	http.ServeFile(w, r, item.PdfFilePath)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filepath.Base(safePath)))
+	http.ServeFile(w, r, safePath)
 }
 
 // ------------------------------------------------ Master List
@@ -816,11 +890,16 @@ func (h *Handler) handleDownloadEvidenceFile(w http.ResponseWriter, r *http.Requ
 		httpx.Fail(w, httpx.NewError(http.StatusNotFound, "NOT_FOUND", "Evidence bukan berupa file."))
 		return
 	}
+	safePath, err := resolveConfinedFile("uploads/evidences", ev.FilePath)
+	if err != nil {
+		httpx.Fail(w, err)
+		return
+	}
 	if ev.MimeType != "" {
 		w.Header().Set("Content-Type", ev.MimeType)
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filepath.Base(ev.FileName)))
-	http.ServeFile(w, r, ev.FilePath)
+	http.ServeFile(w, r, safePath)
 }
 
 func (h *Handler) handleListNotifications(w http.ResponseWriter, r *http.Request) {

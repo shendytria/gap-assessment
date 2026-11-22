@@ -24,6 +24,7 @@ CREATE TYPE gap_status         AS ENUM ('100', '50', '0', 'NA');
 CREATE TYPE gap_workflow_status AS ENUM (
     'DRAFT',                    -- Co Gap Staff menyusun gap analysis
     'ACTION_PLAN',              -- PIC Area mengisi action plan (juga tujuan saat reject Stage 1)
+    'STAFF_REVIEW',             -- Co Gap Staff mengecek kelengkapan action plan sebelum verifikasi Supervisor
     'SUPERVISOR_VERIFICATION',  -- Co Gap Supervisor verifikasi assessment
     'APPROVAL_STAGE1',          -- Manager Area > Co Gap Manager > QA Manager > QO Head 
     'EXECUTION',                -- PIC Area menjalankan action plan + upload evidence (juga tujuan saat reject Stage 2)
@@ -50,6 +51,12 @@ CREATE TABLE site (
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
+
+-- Referensi site standar Kalbe Consumer Health
+INSERT INTO site (site_code, site_name) VALUES
+    ('CKR', 'Cikarang'),
+    ('PLG', 'Pulogadung'),
+    ('PLM', 'Pulomas');
 
 CREATE TABLE category (
     category_id   SMALLINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -108,6 +115,63 @@ CREATE TABLE role_permission (
     can_download_pdf BOOLEAN NOT NULL DEFAULT FALSE,
     PRIMARY KEY (role_id, module)
 );
+
+-- Referensi matriks hak akses role x modul sesuai URS
+INSERT INTO role_permission (role_id, module, can_view, can_edit, can_approve, can_download_pdf)
+SELECT r.role_id, p.module, p.v, p.e, p.a, p.pdf
+FROM (VALUES
+    -- Co Gap Staff
+    ('CO_GAP_STAFF','DASHBOARD',            TRUE, FALSE, FALSE, TRUE),
+    ('CO_GAP_STAFF','MASTER_LIST',          TRUE, FALSE, FALSE, TRUE),
+    ('CO_GAP_STAFF','UPLOAD_REGULATION',    TRUE, TRUE,  FALSE, FALSE),
+    ('CO_GAP_STAFF','GAP_ANALYSIS',         TRUE, TRUE,  FALSE, TRUE),
+    ('CO_GAP_STAFF','DELEGATION',           TRUE, TRUE,  FALSE, FALSE),
+    ('CO_GAP_STAFF','AUDIT_TRAIL',          TRUE, FALSE, FALSE, TRUE),
+    ('CO_GAP_STAFF','SETTING',              TRUE, FALSE, FALSE, FALSE),
+    -- Co Gap Supervisor (Administrator - Akses Penuh ke Seluruh 11 Modul)
+    ('CO_GAP_SUPERVISOR','DASHBOARD',             TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','MASTER_LIST',           TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','UPLOAD_REGULATION',     TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','GAP_ANALYSIS',          TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','DELEGATION',            TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','APPROVAL_S1',           TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','APPROVAL_S2',           TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','OUTSTANDING_EXECUTION', TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','MONITORING',            TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','AUDIT_TRAIL',           TRUE, TRUE,  TRUE,  TRUE),
+    ('CO_GAP_SUPERVISOR','SETTING',               TRUE, TRUE,  TRUE,  TRUE),
+    -- PIC Area
+    ('PIC_AREA','DASHBOARD',                TRUE, FALSE, FALSE, FALSE),
+    ('PIC_AREA','MASTER_LIST',              TRUE, FALSE, FALSE, FALSE),
+    ('PIC_AREA','GAP_ANALYSIS',             TRUE, TRUE,  FALSE, FALSE),
+    ('PIC_AREA','OUTSTANDING_EXECUTION',    TRUE, TRUE,  FALSE, FALSE),
+    -- Manager Area
+    ('MANAGER_AREA','DASHBOARD',            TRUE, FALSE, FALSE, FALSE),
+    ('MANAGER_AREA','MASTER_LIST',          TRUE, FALSE, FALSE, FALSE),
+    ('MANAGER_AREA','APPROVAL_S1',          TRUE, FALSE, TRUE,  FALSE),
+    ('MANAGER_AREA','APPROVAL_S2',          TRUE, FALSE, TRUE,  FALSE),
+    ('MANAGER_AREA','AUDIT_TRAIL',          TRUE, FALSE, FALSE, FALSE),
+    -- Co Gap Manager
+    ('CO_GAP_MANAGER','DASHBOARD',          TRUE, FALSE, FALSE, FALSE),
+    ('CO_GAP_MANAGER','MASTER_LIST',        TRUE, FALSE, TRUE,  FALSE),
+    ('CO_GAP_MANAGER','DELEGATION',         TRUE, FALSE, FALSE, FALSE),
+    ('CO_GAP_MANAGER','APPROVAL_S1',        TRUE, FALSE, TRUE,  FALSE),
+    ('CO_GAP_MANAGER','APPROVAL_S2',        TRUE, FALSE, TRUE,  FALSE),
+    ('CO_GAP_MANAGER','AUDIT_TRAIL',        TRUE, FALSE, FALSE, FALSE),
+    ('CO_GAP_MANAGER','SETTING',            TRUE, FALSE, FALSE, FALSE),
+    -- QA Manager
+    ('QA_MANAGER','DASHBOARD',              TRUE, FALSE, FALSE, FALSE),
+    ('QA_MANAGER','MASTER_LIST',            TRUE, FALSE, FALSE, FALSE),
+    ('QA_MANAGER','APPROVAL_S1',            TRUE, FALSE, TRUE,  FALSE),
+    ('QA_MANAGER','APPROVAL_S2',            TRUE, FALSE, TRUE,  FALSE),
+    ('QA_MANAGER','AUDIT_TRAIL',            TRUE, FALSE, FALSE, FALSE),
+    -- QO Head (final approval Stage 1)
+    ('QO_HEAD','DASHBOARD',                 TRUE, FALSE, FALSE, FALSE),
+    ('QO_HEAD','MASTER_LIST',               TRUE, FALSE, FALSE, FALSE),
+    ('QO_HEAD','APPROVAL_S1',               TRUE, FALSE, TRUE,  FALSE),
+    ('QO_HEAD','AUDIT_TRAIL',               TRUE, FALSE, FALSE, FALSE)
+) AS p(role_code, module, v, e, a, pdf)
+JOIN role r ON r.role_code = p.role_code;
 
 -- -----------------------------------------------------------------------------
 -- 2. USERS & SESSION
@@ -556,12 +620,24 @@ CREATE TRIGGER trg_log_history_no_truncate BEFORE TRUNCATE ON log_history
 --   SET LOCAL app.user_id = '12'; SET LOCAL app.on_behalf_of = '7'; SET LOCAL app.ip = '10.0.0.1';
 CREATE FUNCTION fn_audit_row() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
-    v_user  INT  := NULLIF(current_setting('app.user_id', true), '')::INT;
-    v_obo   INT  := NULLIF(current_setting('app.on_behalf_of', true), '')::INT;
-    v_act   audit_activity := TG_ARGV[0]::audit_activity;
-    v_new   JSONB; v_old JSONB; v_id TEXT; v_gap INT; v_action audit_action;
-    v_desc  TEXT;
-    v_gap_no TEXT;
+    v_user      INT  := NULLIF(current_setting('app.user_id', true), '')::INT;
+    v_obo       INT  := NULLIF(current_setting('app.on_behalf_of', true), '')::INT;
+    v_act       audit_activity := TG_ARGV[0]::audit_activity;
+    v_new       JSONB;
+    v_old       JSONB;
+    v_row       JSONB;
+    v_id        TEXT;
+    v_gap       INT;
+    v_site      SMALLINT;
+    v_action    audit_action;
+    v_desc      TEXT;
+    v_gap_no    TEXT;
+    v_clause_no TEXT;
+    v_role_name TEXT;
+    v_orig_name TEXT;
+    v_del_name  TEXT;
+    v_obo_name  TEXT;
+    v_stage_lbl TEXT;
 BEGIN
     IF TG_OP <> 'DELETE' THEN v_new := to_jsonb(NEW) - 'password_hash' - 'updated_at'; END IF;
     IF TG_OP <> 'INSERT' THEN v_old := to_jsonb(OLD) - 'password_hash' - 'updated_at'; END IF;
@@ -569,102 +645,210 @@ BEGIN
         IF v_new IS NOT NULL THEN v_new := v_new - 'password_changed_at' - 'must_change_password' - 'failed_login_count' - 'locked_until' - 'last_login_at'; END IF;
         IF v_old IS NOT NULL THEN v_old := v_old - 'password_changed_at' - 'must_change_password' - 'failed_login_count' - 'locked_until' - 'last_login_at'; END IF;
     END IF;
-    v_id  := COALESCE(v_new, v_old) ->> TG_ARGV[1];
-    v_gap := NULLIF(COALESCE(v_new, v_old) ->> 'gap_id', '')::INT;
-    IF v_gap IS NULL AND TG_TABLE_NAME = 'gap_analysis' THEN
-        v_gap := NULLIF(COALESCE(v_new, v_old) ->> 'gap_id', '')::INT;
-    ELSIF v_gap IS NULL AND TG_TABLE_NAME = 'action_plan' THEN
-        SELECT ga.gap_id INTO v_gap FROM gap_analysis ga WHERE ga.gap_analysis_id = NULLIF(COALESCE(v_new, v_old) ->> 'gap_analysis_id', '')::BIGINT;
+    v_row := COALESCE(v_new, v_old);
+    v_id  := v_row ->> TG_ARGV[1];
+    v_gap := NULLIF(v_row ->> 'gap_id', '')::INT;
+    v_site := NULLIF(v_row ->> 'site_id', '')::SMALLINT;
+
+    IF v_gap IS NULL AND TG_TABLE_NAME = 'action_plan' THEN
+        SELECT ga.gap_id INTO v_gap
+        FROM gap_analysis ga
+        WHERE ga.gap_analysis_id = NULLIF(v_row ->> 'gap_analysis_id', '')::BIGINT;
+    ELSIF v_gap IS NULL AND TG_TABLE_NAME = 'evidence' THEN
+        SELECT ga.gap_id INTO v_gap
+        FROM action_plan ap
+        JOIN gap_analysis ga ON ga.gap_analysis_id = ap.gap_analysis_id
+        WHERE ap.action_plan_id = NULLIF(v_row ->> 'action_plan_id', '')::BIGINT;
     END IF;
+
     IF v_gap IS NOT NULL THEN
-        SELECT gap_no INTO v_gap_no FROM gap_document WHERE gap_id = v_gap;
+        SELECT gap_no, COALESCE(v_site, site_id) INTO v_gap_no, v_site
+        FROM gap_document WHERE gap_id = v_gap;
+    END IF;
+
+    IF v_site IS NULL AND TG_TABLE_NAME = 'master_list_item' THEN
+        SELECT site_id INTO v_site
+        FROM master_list_doc
+        WHERE master_list_doc_id = NULLIF(v_row ->> 'master_list_doc_id', '')::INT;
+    END IF;
+    IF v_site IS NULL AND v_user IS NOT NULL THEN
+        SELECT site_id INTO v_site FROM users WHERE user_id = v_user;
+    END IF;
+
+    IF v_obo IS NULL AND TG_TABLE_NAME = 'approval' THEN
+        v_obo := NULLIF(v_row ->> 'on_behalf_of_user_id', '')::INT;
+    END IF;
+    IF TG_TABLE_NAME = 'approval' AND (v_row ->> 'stage') = 'STAGE2' THEN
+        v_act := 'APPROVAL_STAGE2';
     END IF;
 
     v_action := CASE TG_OP WHEN 'INSERT' THEN 'ADD' WHEN 'DELETE' THEN 'DELETE' ELSE 'EDIT' END;
     IF TG_OP = 'UPDATE' AND v_old = v_new THEN RETURN NEW; END IF;
 
-    -- Human friendly descriptions in English based on table & action:
+    -- Human-friendly descriptions without raw numeric #id
     IF TG_TABLE_NAME = 'approval' THEN
+        SELECT role_name INTO v_role_name FROM role WHERE role_id = NULLIF(v_row ->> 'role_id', '')::SMALLINT;
+        v_stage_lbl := CASE (v_row ->> 'stage')
+            WHEN 'STAGE1' THEN 'Stage 1'
+            WHEN 'STAGE2' THEN 'Stage 2'
+            ELSE COALESCE(v_row ->> 'stage', '')
+        END;
         IF TG_OP = 'UPDATE' AND (v_new->>'result') = 'APPROVED' THEN
             v_action := 'APPROVE';
-            v_desc := 'Electronic Signature: Approved ' || (v_new->>'stage') || ' (Step ' || (v_new->>'step_seq') || ')';
+            v_desc := 'Approved ' || v_stage_lbl || COALESCE(' for ' || v_gap_no, '') || COALESCE(' as ' || v_role_name, '');
             IF COALESCE(v_new->>'notes', '') <> '' THEN
                 v_desc := v_desc || ' - Notes: ' || (v_new->>'notes');
             END IF;
         ELSIF TG_OP = 'UPDATE' AND (v_new->>'result') = 'REJECTED' THEN
             v_action := 'REJECT';
-            v_desc := 'Rejected ' || (v_new->>'stage') || ' (Step ' || (v_new->>'step_seq') || ') - Reason: ' || COALESCE(v_new->>'notes', 'No reason specified');
+            v_desc := 'Rejected ' || v_stage_lbl || COALESCE(' for ' || v_gap_no, '') || COALESCE(' as ' || v_role_name, '')
+                   || ' - Reason: ' || COALESCE(v_new->>'notes', 'No reason specified');
         ELSE
-            v_desc := 'Approval task for ' || (v_new->>'stage') || ' assigned/updated';
+            v_desc := 'Approval task (' || v_stage_lbl || COALESCE(' - ' || v_role_name, '') || ')' || COALESCE(' for ' || v_gap_no, '') || ' assigned';
         END IF;
+
     ELSIF TG_TABLE_NAME = 'action_plan' THEN
+        SELECT rc.clause_no INTO v_clause_no
+        FROM gap_analysis ga
+        JOIN regulation_clause rc ON rc.clause_id = ga.clause_id
+        WHERE ga.gap_analysis_id = NULLIF(v_row ->> 'gap_analysis_id', '')::BIGINT;
         IF TG_OP = 'UPDATE' THEN
-            IF (v_old->>'execution_status') <> (v_new->>'execution_status') THEN
-                v_desc := 'Action Plan execution status updated from ' || (v_old->>'execution_status') || ' to ' || (v_new->>'execution_status');
-            ELSIF (v_old->>'progress_pct') <> (v_new->>'progress_pct') THEN
-                v_desc := 'Action Plan progress updated: ' || (v_old->>'progress_pct') || '% -> ' || (v_new->>'progress_pct') || '%';
-            ELSIF (v_old->>'due_date') <> (v_new->>'due_date') THEN
-                v_desc := 'Action Plan target due date changed from ' || (v_old->>'due_date') || ' to ' || (v_new->>'due_date');
+            IF COALESCE(v_old->>'execution_status','') <> COALESCE(v_new->>'execution_status','') THEN
+                v_desc := 'Action Plan' || COALESCE(' for Clause ' || v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '')
+                       || ' status changed from ' || COALESCE(v_old->>'execution_status','-') || ' to ' || COALESCE(v_new->>'execution_status','-');
+            ELSIF COALESCE(v_old->>'due_date','') <> COALESCE(v_new->>'due_date','') THEN
+                v_desc := 'Action Plan' || COALESCE(' for Clause ' || v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '')
+                       || ' due date changed from ' || COALESCE(v_old->>'due_date','-') || ' to ' || COALESCE(v_new->>'due_date','-');
+            ELSIF COALESCE(v_old->>'progress_pct','') <> COALESCE(v_new->>'progress_pct','') THEN
+                v_desc := 'Action Plan' || COALESCE(' for Clause ' || v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '')
+                       || ' progress updated from ' || COALESCE(v_old->>'progress_pct','0') || '% to ' || COALESCE(v_new->>'progress_pct','0') || '%';
             ELSE
-                v_desc := 'Action Plan #' || v_id || ' updated';
+                v_desc := 'Action Plan' || COALESCE(' for Clause ' || v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '') || ' updated';
             END IF;
         ELSIF TG_OP = 'INSERT' THEN
-            v_desc := 'New Action Plan created: ' || COALESCE(v_new->>'action_plan_text', '');
-        ELSE
-            v_desc := 'Action Plan deleted';
-        END IF;
-    ELSIF TG_TABLE_NAME = 'gap_document' THEN
-        IF TG_OP = 'UPDATE' AND (v_old->>'workflow_status') <> (v_new->>'workflow_status') THEN
-            v_desc := 'Gap Document ' || COALESCE(v_gap_no, '') || ' status transitioned from ' || (v_old->>'workflow_status') || ' to ' || (v_new->>'workflow_status');
-        ELSE
-            v_desc := 'Gap Document ' || COALESCE(v_gap_no, '#' || v_id) || ' updated';
-        END IF;
-    ELSIF TG_TABLE_NAME = 'delegation' THEN
-        v_action := 'DELEGATION';
-        IF TG_OP = 'INSERT' THEN
-            v_desc := 'Approval authority delegation created';
-        ELSIF TG_OP = 'UPDATE' AND (v_new->>'is_active') = 'false' THEN
-            v_desc := 'Approval authority delegation revoked';
-        ELSE
-            v_desc := 'Approval authority delegation record updated';
-        END IF;
-    ELSIF TG_TABLE_NAME = 'gap_analysis' THEN
-        IF TG_OP = 'UPDATE' THEN
-            IF (v_old->>'status') <> (v_new->>'status') THEN
-                v_desc := 'Clause #' || v_id || ' compliance status changed: ' || COALESCE(v_old->>'status','-') || ' -> ' || (v_new->>'status');
-            ELSE
-                v_desc := 'Gap evaluation for Clause #' || v_id || ' (' || COALESCE(v_gap_no,'') || ') updated';
+            v_desc := 'Action Plan' || COALESCE(' for Clause ' || v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '') || ' created';
+            IF COALESCE(BTRIM(v_new->>'plan_text'), '') <> '' THEN
+                v_desc := v_desc || ': ' || left(BTRIM(v_new->>'plan_text'), 120);
             END IF;
         ELSE
-            v_desc := 'Gap analysis clause assessment saved';
+            v_desc := 'Action Plan' || COALESCE(' for Clause ' || v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '') || ' deleted';
         END IF;
+
+    ELSIF TG_TABLE_NAME = 'gap_document' THEN
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Gap Document ' || COALESCE(v_gap_no, '') || ' created';
+        ELSIF TG_OP = 'UPDATE' AND COALESCE(v_old->>'workflow_status','') <> COALESCE(v_new->>'workflow_status','') THEN
+            v_desc := 'Gap Document ' || COALESCE(v_gap_no, '') || ' status changed from ' || (v_old->>'workflow_status') || ' to ' || (v_new->>'workflow_status');
+        ELSE
+            v_desc := 'Gap Document ' || COALESCE(v_gap_no, '') || ' updated';
+        END IF;
+
+    ELSIF TG_TABLE_NAME = 'delegation' THEN
+        v_action := 'DELEGATION';
+        SELECT full_name INTO v_orig_name FROM users WHERE user_id = NULLIF(v_row ->> 'original_user_id', '')::INT;
+        SELECT full_name INTO v_del_name  FROM users WHERE user_id = NULLIF(v_row ->> 'delegate_user_id', '')::INT;
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Delegation created: ' || COALESCE(v_del_name, 'Delegate') || ' on behalf of ' || COALESCE(v_orig_name, 'Approver');
+        ELSIF TG_OP = 'UPDATE' AND (v_new->>'is_active') = 'false' THEN
+            v_desc := 'Delegation revoked: ' || COALESCE(v_del_name, 'Delegate') || ' on behalf of ' || COALESCE(v_orig_name, 'Approver');
+        ELSE
+            v_desc := 'Delegation updated: ' || COALESCE(v_del_name, 'Delegate') || ' on behalf of ' || COALESCE(v_orig_name, 'Approver');
+        END IF;
+
+    ELSIF TG_TABLE_NAME = 'gap_analysis' THEN
+        SELECT clause_no INTO v_clause_no FROM regulation_clause WHERE clause_id = NULLIF(v_row ->> 'clause_id', '')::BIGINT;
+        IF TG_OP = 'UPDATE' THEN
+            IF COALESCE(v_old->>'status','') <> COALESCE(v_new->>'status','') THEN
+                v_desc := 'Clause ' || COALESCE(v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '')
+                       || ' compliance status changed from ' || COALESCE(v_old->>'status','-') || ' to ' || COALESCE(v_new->>'status','-');
+            ELSE
+                v_desc := 'Gap evaluation for Clause ' || COALESCE(v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '') || ' updated';
+            END IF;
+        ELSIF TG_OP = 'INSERT' THEN
+            v_desc := 'Gap evaluation for Clause ' || COALESCE(v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '') || ' initialized';
+        ELSE
+            v_desc := 'Gap evaluation for Clause ' || COALESCE(v_clause_no, '') || COALESCE(' (' || v_gap_no || ')', '') || ' deleted';
+        END IF;
+
     ELSIF TG_TABLE_NAME = 'evidence' THEN
         IF TG_OP = 'INSERT' THEN
-            v_desc := 'Compliance evidence uploaded: ' || COALESCE(v_new->>'file_name', v_new->>'evidence_text', '');
+            v_desc := 'Evidence uploaded' || COALESCE(' (' || v_gap_no || ')', '') || ': ' || COALESCE(NULLIF(v_new->>'file_name',''), NULLIF(v_new->>'evidence_text',''), 'document');
         ELSE
-            v_desc := 'Compliance evidence record updated';
+            v_desc := 'Evidence record' || COALESCE(' (' || v_gap_no || ')', '') || ' updated';
         END IF;
+
     ELSIF TG_TABLE_NAME = 'regulation' THEN
         IF TG_OP = 'INSERT' THEN
             v_desc := 'Regulation registered: ' || COALESCE(v_new->>'legal_number', '') || ' - ' || COALESCE(v_new->>'title', '');
         ELSE
-            v_desc := 'Regulation #' || v_id || ' updated';
+            v_desc := 'Regulation ' || COALESCE(v_row->>'legal_number', '') || ' updated';
         END IF;
+
+    ELSIF TG_TABLE_NAME = 'regulation_clause' THEN
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Regulation Clause ' || COALESCE(v_new->>'clause_no', '') || ' added';
+        ELSIF TG_OP = 'DELETE' THEN
+            v_desc := 'Regulation Clause ' || COALESCE(v_old->>'clause_no', '') || ' deleted';
+        ELSE
+            v_desc := 'Regulation Clause ' || COALESCE(v_new->>'clause_no', '') || ' updated';
+        END IF;
+
+    ELSIF TG_TABLE_NAME = 'master_list_doc' THEN
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Master List ' || COALESCE(v_new->>'list_no', '') || ' created';
+        ELSE
+            v_desc := 'Master List ' || COALESCE(v_row->>'list_no', '') || ' updated';
+        END IF;
+
+    ELSIF TG_TABLE_NAME = 'master_list_item' THEN
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Master List entry added: ' || COALESCE(v_new->>'legal_number', '') || ' - ' || COALESCE(v_new->>'legal_title', '');
+        ELSE
+            v_desc := 'Master List entry updated: ' || COALESCE(v_row->>'legal_number', '') || ' - ' || COALESCE(v_row->>'legal_title', '');
+        END IF;
+
     ELSIF TG_TABLE_NAME = 'users' THEN
-        v_desc := 'User account #' || v_id || ' (' || COALESCE(v_new->>'username', v_old->>'username', '') || ') updated';
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'User ' || COALESCE(v_new->>'full_name', '') || ' (' || COALESCE(v_new->>'username', '') || ') created';
+        ELSIF TG_OP = 'UPDATE' AND (v_old->>'is_active') = 'true' AND (v_new->>'is_active') = 'false' THEN
+            v_action := 'DEACTIVATE';
+            v_desc := 'User ' || COALESCE(v_new->>'full_name', '') || ' (' || COALESCE(v_new->>'username', '') || ') deactivated';
+        ELSIF TG_OP = 'UPDATE' AND (v_old->>'is_active') = 'false' AND (v_new->>'is_active') = 'true' THEN
+            v_desc := 'User ' || COALESCE(v_new->>'full_name', '') || ' (' || COALESCE(v_new->>'username', '') || ') reactivated';
+        ELSE
+            v_desc := 'User ' || COALESCE(v_row->>'full_name', '') || ' (' || COALESCE(v_row->>'username', '') || ') updated';
+        END IF;
+
     ELSIF TG_TABLE_NAME = 'department' THEN
-        v_desc := 'Department #' || v_id || ' (' || COALESCE(v_new->>'department_code', v_old->>'department_code', '') || ') updated';
+        IF TG_OP = 'INSERT' THEN
+            v_desc := 'Department ' || COALESCE(v_new->>'department_name', '') || ' (' || COALESCE(v_new->>'department_code', '') || ') created';
+        ELSIF TG_OP = 'UPDATE' AND (v_old->>'is_active') = 'true' AND (v_new->>'is_active') = 'false' THEN
+            v_action := 'DEACTIVATE';
+            v_desc := 'Department ' || COALESCE(v_new->>'department_name', '') || ' (' || COALESCE(v_new->>'department_code', '') || ') deactivated';
+        ELSIF TG_OP = 'UPDATE' AND (v_old->>'is_active') = 'false' AND (v_new->>'is_active') = 'true' THEN
+            v_desc := 'Department ' || COALESCE(v_new->>'department_name', '') || ' (' || COALESCE(v_new->>'department_code', '') || ') reactivated';
+        ELSE
+            v_desc := 'Department ' || COALESCE(v_row->>'department_name', '') || ' (' || COALESCE(v_row->>'department_code', '') || ') updated';
+        END IF;
+
+    ELSIF TG_TABLE_NAME = 'category' THEN
+        v_desc := 'Category ' || COALESCE(v_row->>'category_name', '') || ' (' || COALESCE(v_row->>'category_code', '') || ') ' || CASE TG_OP WHEN 'INSERT' THEN 'created' ELSE 'updated' END;
+
+    ELSIF TG_TABLE_NAME = 'site' THEN
+        v_desc := 'Site ' || COALESCE(v_row->>'site_name', '') || ' (' || COALESCE(v_row->>'site_code', '') || ') ' || CASE TG_OP WHEN 'INSERT' THEN 'created' ELSE 'updated' END;
+
     ELSE
-        v_desc := TG_OP || ' ' || TG_TABLE_NAME || ' #' || COALESCE(v_id, '?');
+        v_desc := initcap(replace(TG_TABLE_NAME, '_', ' ')) || ' ' || CASE TG_OP WHEN 'INSERT' THEN 'created' WHEN 'DELETE' THEN 'deleted' ELSE 'updated' END;
     END IF;
 
     IF v_obo IS NOT NULL THEN
-        v_desc := v_desc || ' (on behalf of user ' || v_obo || ')';
+        SELECT full_name INTO v_obo_name FROM users WHERE user_id = v_obo;
+        v_desc := v_desc || ' (on behalf of ' || COALESCE(v_obo_name, 'approver') || ')';
     END IF;
 
-    INSERT INTO log_history (user_id, username, action, activity, gap_id, entity_table, entity_id,
+    INSERT INTO log_history (user_id, username, action, activity, site_id, gap_id, entity_table, entity_id,
                              description, before_value, after_value, on_behalf_of_user_id, ip_address)
-    VALUES (v_user, (SELECT username FROM users WHERE user_id = v_user), v_action, v_act, v_gap, TG_TABLE_NAME, v_id,
+    VALUES (v_user, (SELECT username FROM users WHERE user_id = v_user), v_action, v_act, v_site, v_gap, TG_TABLE_NAME, v_id,
             v_desc, v_old, v_new, v_obo, NULLIF(current_setting('app.ip', true), '')::INET);
     RETURN COALESCE(NEW, OLD);
 END $$;
@@ -678,7 +862,7 @@ CREATE TRIGGER trg_audit_regulation AFTER INSERT OR UPDATE OR DELETE ON regulati
 CREATE TRIGGER trg_audit_clause     AFTER INSERT OR UPDATE OR DELETE ON regulation_clause FOR EACH ROW EXECUTE FUNCTION fn_audit_row('UPLOAD_REGULATION','clause_id');
 CREATE TRIGGER trg_audit_ml_doc     AFTER INSERT OR UPDATE OR DELETE ON master_list_doc   FOR EACH ROW EXECUTE FUNCTION fn_audit_row('MASTER_LIST','master_list_doc_id');
 CREATE TRIGGER trg_audit_ml_item    AFTER INSERT OR UPDATE OR DELETE ON master_list_item  FOR EACH ROW EXECUTE FUNCTION fn_audit_row('MASTER_LIST','master_list_item_id');
-CREATE TRIGGER trg_audit_gap_doc    AFTER INSERT OR UPDATE OR DELETE ON gap_document      FOR EACH ROW EXECUTE FUNCTION fn_audit_row('MASTER_LIST','gap_id');
+CREATE TRIGGER trg_audit_gap_doc    AFTER INSERT OR UPDATE OR DELETE ON gap_document      FOR EACH ROW EXECUTE FUNCTION fn_audit_row('GAP_ANALYSIS_ACTION_PLAN','gap_id');
 CREATE TRIGGER trg_audit_gap_an     AFTER INSERT OR UPDATE OR DELETE ON gap_analysis      FOR EACH ROW EXECUTE FUNCTION fn_audit_row('GAP_ANALYSIS_ACTION_PLAN','gap_analysis_id');
 CREATE TRIGGER trg_audit_action     AFTER INSERT OR UPDATE OR DELETE ON action_plan       FOR EACH ROW EXECUTE FUNCTION fn_audit_row('GAP_ANALYSIS_ACTION_PLAN','action_plan_id');
 CREATE TRIGGER trg_audit_approval   AFTER INSERT OR UPDATE OR DELETE ON approval          FOR EACH ROW EXECUTE FUNCTION fn_audit_row('APPROVAL_STAGE1','approval_id');

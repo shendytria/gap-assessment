@@ -39,6 +39,7 @@ type Clause = {
   evidenceSummary?: string;
   evidences?: EvidenceItem[];
   apVerifiedByName?: string;
+  apVerifiedByInitials?: string;
   chapter?: string;
   sortOrder?: number;
 };
@@ -61,9 +62,23 @@ type Approval = {
   signatureMeaning: string;
 };
 
+type ChangeNote = {
+  changeNoteId: number;
+  gapId?: number;
+  gapNo?: string;
+  revisionNo?: number;
+  effectiveDate?: string;
+  newCount: number;
+  changedCount: number;
+  deletedCount: number;
+  changePoints: string;
+  createdAt?: string;
+};
+
 type GapDocDetail = {
   gapId: number;
   gapNo: string;
+  revisionNo?: number;
   legalNumber: string;
   regulationTitle: string;
   siteCode: string;
@@ -76,6 +91,7 @@ type GapDocDetail = {
   verifiedByInitials?: string;
   verifiedAt?: string | null;
   clauses: Clause[];
+  changeNotes?: ChangeNote[];
   approvals?: Approval[];
 };
 
@@ -179,30 +195,110 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
 
   // Pick the latest STAGE1 approval cycle
   const allStage1 = (doc.approvals || []).filter((a) => a.stage === "STAGE1");
-  const latestCycle = allStage1.reduce((mx, a) => Math.max(mx, a.cycleNo || 1), 0);
-  const stage1Approvals = latestCycle > 0
-    ? allStage1.filter((a) => (a.cycleNo || 1) === latestCycle)
+  const latestStage1Cycle = allStage1.reduce((mx, a) => Math.max(mx, a.cycleNo || 1), 0);
+  const stage1Approvals = latestStage1Cycle > 0
+    ? allStage1.filter((a) => (a.cycleNo || 1) === latestStage1Cycle)
     : allStage1;
 
-  const managerAreas = stage1Approvals.filter((a) => a.roleCode === "MANAGER_AREA");
-  const mgrQs = stage1Approvals.find((a) => a.roleCode === "CO_GAP_MANAGER");
-  const mgrQa = stage1Approvals.find(
-    (a) => a.roleCode === "QA_MANAGER" && a.result !== "SKIPPED"
-  );
-  const headQo = stage1Approvals.find((a) => a.roleCode === "QO_HEAD");
+  // Pick the latest STAGE2 approval cycle (only present if document proceeded to Stage 2)
+  const allStage2 = (doc.approvals || []).filter((a) => a.stage === "STAGE2");
+  const latestStage2Cycle = allStage2.reduce((mx, a) => Math.max(mx, a.cycleNo || 1), 0);
+  const stage2Approvals = latestStage2Cycle > 0
+    ? allStage2.filter((a) => (a.cycleNo || 1) === latestStage2Cycle)
+    : allStage2;
+  const hasStage2 = stage2Approvals.length > 0;
 
-  const approvalSlots: { key: string; roleLabel: string; item?: Approval }[] = [
-    { key: "qs-mgr", roleLabel: "QS Manager", item: mgrQs },
-    ...(mgrQa ? [{ key: "qa-mgr", roleLabel: doc.siteCode ? `QA Manager ${doc.siteCode}` : "QA Manager", item: mgrQa }] : []),
-    ...(managerAreas.length > 0
-      ? managerAreas.map((m, idx) => ({
-          key: `mgr-area-${m.approvalId}-${idx}`,
-          roleLabel: m.departmentCode ? `Manager Area (${m.departmentCode})` : "Manager Area",
-          item: m,
-        }))
-      : [{ key: "mgr-area-empty", roleLabel: "Manager Area", item: undefined }]),
-    { key: "qo-head", roleLabel: "QO Div. Head", item: headQo },
-  ];
+  const buildApprovalSlots = (
+    list: Approval[],
+    includeQoHead: boolean
+  ): { key: string; roleLabel: string; item?: Approval }[] => {
+    const managerAreas = list.filter((a) => a.roleCode === "MANAGER_AREA");
+    const mgrQs = list.find((a) => a.roleCode === "CO_GAP_MANAGER");
+    const mgrQa = list.find(
+      (a) => a.roleCode === "QA_MANAGER" && a.result !== "SKIPPED"
+    );
+    const headQo = includeQoHead
+      ? list.find((a) => a.roleCode === "QO_HEAD")
+      : undefined;
+
+    return [
+      { key: "qs-mgr", roleLabel: "QS Manager", item: mgrQs },
+      ...(mgrQa
+        ? [
+            {
+              key: "qa-mgr",
+              roleLabel: doc.siteCode ? `QA Manager ${doc.siteCode}` : "QA Manager",
+              item: mgrQa,
+            },
+          ]
+        : []),
+      ...(managerAreas.length > 0
+        ? managerAreas.map((m, idx) => ({
+            key: `mgr-area-${m.approvalId}-${idx}`,
+            roleLabel: m.departmentCode ? `Manager Area (${m.departmentCode})` : "Manager Area",
+            item: m,
+          }))
+        : [{ key: "mgr-area-empty", roleLabel: "Manager Area", item: undefined }]),
+      ...(includeQoHead ? [{ key: "qo-head", roleLabel: "QO Div. Head", item: headQo }] : []),
+    ];
+  };
+
+  const stage1Slots = buildApprovalSlots(stage1Approvals, true);
+  const stage2Slots = hasStage2 ? buildApprovalSlots(stage2Approvals, false) : [];
+
+  const renderApprovalGrid = (
+    slots: { key: string; roleLabel: string; item?: Approval }[]
+  ) => (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${slots.length}, minmax(0, 1fr))`,
+        gap: "6px",
+      }}
+    >
+      {slots.map((slot) => {
+        const isApproved = slot.item?.result === "APPROVED";
+        const signerInitial = slot.item
+          ? slot.item.onBehalfOfName
+            ? `${getDisplayInitials(slot.item.actedByInitials, slot.item.actedByName)} (o/b ${getDisplayInitials(slot.item.onBehalfOfInitials, slot.item.onBehalfOfName)})`
+            : getDisplayInitials(
+                slot.item.actedByInitials || slot.item.assignedInitials,
+                slot.item.actedByName || slot.item.assignedName
+              )
+          : "-";
+        const timestampStr = isApproved ? formatTimestampWIB(slot.item?.actedAt) : "";
+
+        return (
+          <div key={slot.key} style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "5pt", color: "#333333", minHeight: "11px", lineHeight: 1.1 }}>
+              {timestampStr}
+            </div>
+            <div
+              style={{
+                minHeight: "22px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {isApproved ? <ApprovedStamp width={62} height={18} /> : <div style={{ height: "18px" }} />}
+            </div>
+            <div
+              style={{
+                fontWeight: 700,
+                marginTop: "2px",
+                fontSize: "7.5pt",
+                letterSpacing: "0.5px",
+              }}
+            >
+              {signerInitial}
+            </div>
+            <div style={{ fontSize: "6pt", color: "#111111" }}>({slot.roleLabel})</div>
+          </div>
+        );
+      })}
+    </div>
+  );
 
   const thStyle: React.CSSProperties = {
     backgroundColor: "#00b050",
@@ -409,60 +505,93 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
               </div>
             </div>
 
-            {/* Disetujui Oleh */}
-            <div>
-              <div style={{ textAlign: "center", marginBottom: "3px", fontWeight: 600 }}>Disetujui Oleh,</div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: `repeat(${approvalSlots.length}, minmax(0, 1fr))`,
-                  gap: "6px",
-                }}
-              >
-                {approvalSlots.map((slot) => {
-                  const isApproved = slot.item?.result === "APPROVED";
-                  const signerInitial = slot.item
-                    ? slot.item.onBehalfOfName
-                      ? `${getDisplayInitials(slot.item.actedByInitials, slot.item.actedByName)} (o/b ${getDisplayInitials(slot.item.onBehalfOfInitials, slot.item.onBehalfOfName)})`
-                      : getDisplayInitials(
-                          slot.item.actedByInitials || slot.item.assignedInitials,
-                          slot.item.actedByName || slot.item.assignedName
-                        )
-                    : "-";
-                  const timestampStr = isApproved ? formatTimestampWIB(slot.item?.actedAt) : "";
-
-                  return (
-                    <div key={slot.key} style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: "5pt", color: "#333333", minHeight: "11px", lineHeight: 1.1 }}>
-                        {timestampStr}
-                      </div>
-                      <div
-                        style={{
-                          minHeight: "22px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        {isApproved ? <ApprovedStamp width={62} height={18} /> : <div style={{ height: "18px" }} />}
-                      </div>
-                      <div
-                        style={{
-                          fontWeight: 700,
-                          marginTop: "2px",
-                          fontSize: "7.5pt",
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        {signerInitial}
-                      </div>
-                      <div style={{ fontSize: "6pt", color: "#111111" }}>({slot.roleLabel})</div>
-                    </div>
-                  );
-                })}
+            {/* Disetujui Oleh (Stage 1, dan Stage 2 jika melewati tahap Closure) */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div>
+                <div style={{ textAlign: "center", marginBottom: "3px", fontWeight: 600 }}>
+                  {hasStage2 ? "Disetujui Oleh — Stage 1 (Gap & Action Plan)," : "Disetujui Oleh,"}
+                </div>
+                {renderApprovalGrid(stage1Slots)}
               </div>
+
+              {hasStage2 && (
+                <div style={{ borderTop: "1px dashed #cbd5e1", paddingTop: "5px" }}>
+                  <div style={{ textAlign: "center", marginBottom: "3px", fontWeight: 600 }}>
+                    Disetujui Oleh — Stage 2 (Closure),
+                  </div>
+                  {renderApprovalGrid(stage2Slots)}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Historical Change Notes Summary Table (for Revised Regulations — URS 005E & 007C) */}
+          {(() => {
+            const notes = [...(doc.changeNotes || [])].sort(
+              (a, b) => (a.revisionNo ?? 0) - (b.revisionNo ?? 0) || a.changeNoteId - b.changeNoteId
+            );
+            const isRevised =
+              (doc.revisionNo ?? 0) > 0 ||
+              notes.length > 1 ||
+              notes.some((n) => (n.revisionNo ?? 0) > 0);
+            if (!isRevised || notes.length === 0) return null;
+
+            return (
+              <div style={{ marginBottom: "8px" }}>
+                <div
+                  style={{
+                    fontSize: "6pt",
+                    fontWeight: 700,
+                    marginBottom: "3px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.2px",
+                  }}
+                >
+                  Riwayat Perubahan / Change Notes
+                </div>
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    tableLayout: "fixed",
+                  }}
+                >
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, width: "5%" }}>Rev</th>
+                      <th style={{ ...thStyle, width: "16%" }}>No. Dokumen Gap</th>
+                      <th style={{ ...thStyle, width: "12%" }}>Effective Date</th>
+                      <th style={{ ...thStyle, width: "6%" }}>New</th>
+                      <th style={{ ...thStyle, width: "7%" }}>Changed</th>
+                      <th style={{ ...thStyle, width: "7%" }}>Deleted</th>
+                      <th style={{ ...thStyle, width: "47%" }}>Change Points Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {notes.map((cn) => (
+                      <tr key={cn.changeNoteId} style={{ backgroundColor: "#ffffff" }}>
+                        <td style={{ ...tdBase, textAlign: "center", fontWeight: 700 }}>
+                          {String(cn.revisionNo ?? 0).padStart(2, "0")}
+                        </td>
+                        <td style={{ ...tdBase, textAlign: "center", fontWeight: 600 }}>
+                          {cn.gapNo || doc.gapNo}
+                        </td>
+                        <td style={{ ...tdBase, textAlign: "center" }}>
+                          {formatDateShort(cn.effectiveDate || cn.createdAt)}
+                        </td>
+                        <td style={{ ...tdBase, textAlign: "center" }}>{cn.newCount}</td>
+                        <td style={{ ...tdBase, textAlign: "center" }}>{cn.changedCount}</td>
+                        <td style={{ ...tdBase, textAlign: "center" }}>{cn.deletedCount}</td>
+                        <td style={{ ...tdBase, whiteSpace: "pre-wrap" }}>
+                          {cn.changePoints || "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
 
           {/* 16-Column Matrix Table matching PDF template colors & layout */}
           <table
@@ -591,7 +720,7 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
                         <td style={tdBase} />
                         <td style={tdBase} />
                         <td style={tdBase} />
-                        <td style={{ ...tdBase, fontWeight: 600 }}>Bersifat informatif</td>
+                        <td style={{ ...tdBase, textAlign: "center", fontWeight: 700 }}>INFO</td>
                         <td style={tdBase} />
                         <td style={tdBase} />
                         <td style={tdBase} />
@@ -727,8 +856,12 @@ export default function Lampiran1Modal({ doc, onClose }: Props) {
                             return "-";
                           })()}
                         </td>
-                        <td style={{ ...tdBase, textAlign: "center" }}>
-                          {naCell ? "" : c.apVerifiedByName || ""}
+                        <td style={{ ...tdBase, textAlign: "center", fontWeight: 600 }}>
+                          {naCell
+                            ? ""
+                            : c.apVerifiedByName || c.apVerifiedByInitials
+                            ? getDisplayInitials(c.apVerifiedByInitials, c.apVerifiedByName)
+                            : ""}
                         </td>
                         <td style={{ ...tdBase, textAlign: "center" }}>{execStatusLabel}</td>
                       </tr>

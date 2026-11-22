@@ -59,6 +59,7 @@ type GapAnalysisRow = {
   evidenceSummary?: string;
   evidences?: EvidenceItem[];
   apVerifiedByName?: string;
+  apVerifiedByInitials?: string;
 };
 
 type GapDocDetail = {
@@ -478,7 +479,7 @@ export default function GapAnalysisDetailPage() {
 
   // Verification modal state (for Co Gap Supervisor)
   const [showVerifyModal, setShowVerifyModal] = useState(false);
-  const [verifyDecision, setVerifyDecision] = useState<"SEND_PIC" | "STAGE1" | "RETURN_DRAFT">("STAGE1");
+  const [verifyDecision, setVerifyDecision] = useState<"SEND_PIC" | "STAGE1" | "RETURN_PIC" | "RETURN_DRAFT">("STAGE1");
   const [returnNotes, setReturnNotes] = useState("");
   const [showStaffReviewModal, setShowStaffReviewModal] = useState(false);
   const [staffReviewDecision, setStaffReviewDecision] = useState<"SUBMIT_SPV" | "RETURN_PIC">("SUBMIT_SPV");
@@ -848,6 +849,8 @@ export default function GapAnalysisDetailPage() {
       !c.isInfo &&
       (c.inProcedure === false || c.inPractice === false)
   );
+  const draftNeedsPicActionPlan =
+    hasBelow100 && !!findIncompleteActionPlanClause(doc.clauses);
 
   const getEligiblePics = (c: GapAnalysisRow) => {
     const activePics = users.filter(
@@ -877,7 +880,12 @@ export default function GapAnalysisDetailPage() {
   const handleSubmitClick = () => {
     if (!doc) return;
     if (isStaff && (doc.workflowStatus === "DRAFT" || doc.workflowStatus === "STAFF_REVIEW")) {
-      const evalErr = validateGapEvaluationAndDept(doc.clauses, "is required before sending to PIC Area.");
+      const evalErr = validateGapEvaluationAndDept(
+        doc.clauses,
+        doc.workflowStatus === "DRAFT" && draftNeedsPicActionPlan
+          ? "is required before sending to PIC Area."
+          : "is required before submitting to Supervisor."
+      );
       if (evalErr) {
         setMsg({ type: "err", text: evalErr });
         return;
@@ -931,7 +939,9 @@ export default function GapAnalysisDetailPage() {
       setMsg({
         type: "ok",
         text:
-          res?.workflowStatus === "STAFF_REVIEW"
+          res?.workflowStatus === "ACTION_PLAN"
+            ? "Gap analysis submitted directly to PIC Area to fill Action Plans."
+            : res?.workflowStatus === "STAFF_REVIEW"
             ? "Action Plan submitted to Co Gap Staff for completeness check."
             : "Assessment submitted to Co Gap Supervisor for verification.",
       });
@@ -1037,9 +1047,16 @@ export default function GapAnalysisDetailPage() {
     e.preventDefault();
     if (!doc) return;
 
-    if (verifyDecision === "RETURN_DRAFT") {
+    if (verifyDecision === "RETURN_DRAFT" || verifyDecision === "RETURN_PIC") {
       if (!returnNotes.trim()) {
         setMsg({ type: "err", text: "Return / Revision Notes are required." });
+        return;
+      }
+      if (verifyDecision === "RETURN_PIC" && !hasBelow100) {
+        setMsg({
+          type: "err",
+          text: "All clauses are 100% or N/A. Cannot return to PIC Area.",
+        });
         return;
       }
     } else if (verifyDecision === "SEND_PIC") {
@@ -1076,8 +1093,11 @@ export default function GapAnalysisDetailPage() {
     try {
       const payload = {
         returnDraft: verifyDecision === "RETURN_DRAFT",
-        sendToPic: verifyDecision === "SEND_PIC",
-        returnNotes,
+        sendToPic: verifyDecision === "SEND_PIC" || verifyDecision === "RETURN_PIC",
+        returnNotes:
+          verifyDecision === "RETURN_DRAFT" || verifyDecision === "RETURN_PIC"
+            ? returnNotes
+            : "",
         clauses: doc.clauses.map((c) => ({
           gapAnalysisId: c.gapAnalysisId,
           status: !c.isApplicable ? "NA" : c.proposedStatus || c.status || "50",
@@ -1094,6 +1114,8 @@ export default function GapAnalysisDetailPage() {
       const toastParam =
         verifyDecision === "RETURN_DRAFT"
           ? "returned"
+          : verifyDecision === "RETURN_PIC"
+          ? "returned_pic"
           : verifyDecision === "SEND_PIC"
           ? "sent_pic"
           : "verified";
@@ -1713,6 +1735,8 @@ export default function GapAnalysisDetailPage() {
             >
               {isPic && doc.workflowStatus === "ACTION_PLAN"
                 ? "Submit to Co Gap Staff"
+                : doc.workflowStatus === "DRAFT" && draftNeedsPicActionPlan
+                ? "Submit to PIC Area"
                 : "Submit to Supervisor"}
             </button>
           )}
@@ -1735,7 +1759,9 @@ export default function GapAnalysisDetailPage() {
           hasBelow100 && !!findIncompleteActionPlanClause(doc.clauses);
         const primaryDecision = needsPicActionPlan ? "SEND_PIC" : "STAGE1";
         const isPrimarySelected = verifyDecision === primaryDecision;
-        const isReturnSelected = verifyDecision === "RETURN_DRAFT";
+        const isReturnDraftSelected = verifyDecision === "RETURN_DRAFT";
+        const isReturnPicSelected = verifyDecision === "RETURN_PIC";
+        const isAnyReturnSelected = isReturnDraftSelected || isReturnPicSelected;
         return (
           <div className="modal-overlay">
             <div className="modal-card" style={{ maxWidth: "440px", padding: "1.25rem 1.4rem" }}>
@@ -1763,9 +1789,19 @@ export default function GapAnalysisDetailPage() {
                     }
                     onSelect={() => setVerifyDecision(primaryDecision)}
                   />
+                  {!needsPicActionPlan && hasBelow100 && (
+                    <DecisionOptionCard
+                      name="decision"
+                      selected={isReturnPicSelected}
+                      tone="danger"
+                      title="Return to PIC Area"
+                      description="Sends it back to PIC Area to revise Action Plan."
+                      onSelect={() => setVerifyDecision("RETURN_PIC")}
+                    />
+                  )}
                   <DecisionOptionCard
                     name="decision"
-                    selected={isReturnSelected}
+                    selected={isReturnDraftSelected}
                     tone="danger"
                     title="Return to Draft"
                     description="Sends it back to Co Gap Staff for revision."
@@ -1773,7 +1809,7 @@ export default function GapAnalysisDetailPage() {
                   />
                 </div>
 
-                {isReturnSelected && (
+                {isAnyReturnSelected && (
                   <div style={{ marginTop: "0.8rem" }}>
                     <label
                       htmlFor="returnNotes"
@@ -1786,7 +1822,11 @@ export default function GapAnalysisDetailPage() {
                       rows={3}
                       className="filter-input"
                       style={{ width: "100%", height: "auto", padding: "0.55rem 0.7rem", fontSize: "0.86rem" }}
-                      placeholder="Describe discrepancies or missing clauses to be fixed..."
+                      placeholder={
+                        isReturnPicSelected
+                          ? "Describe what needs to be revised in the Action Plan..."
+                          : "Describe discrepancies or missing clauses to be fixed..."
+                      }
                       value={returnNotes}
                       onChange={(e) => setReturnNotes(e.target.value)}
                       required
@@ -1805,12 +1845,14 @@ export default function GapAnalysisDetailPage() {
                     type="submit"
                     className="btn btn-primary"
                     disabled={saving}
-                    style={isReturnSelected ? { background: "#c52a2a", borderColor: "#c52a2a" } : undefined}
+                    style={isAnyReturnSelected ? { background: "#c52a2a", borderColor: "#c52a2a" } : undefined}
                   >
                     {saving
                       ? "Processing..."
-                      : isReturnSelected
+                      : isReturnDraftSelected
                       ? "Return to Draft"
+                      : isReturnPicSelected
+                      ? "Return to PIC Area"
                       : needsPicActionPlan
                       ? "Send to PIC Area"
                       : "Confirm & Send to Stage 1"}
@@ -1830,6 +1872,8 @@ export default function GapAnalysisDetailPage() {
                 {confirmAction === "submit_next"
                   ? isPic && doc.workflowStatus === "ACTION_PLAN"
                     ? "Submit to Co Gap Staff"
+                    : doc.workflowStatus === "DRAFT" && draftNeedsPicActionPlan
+                    ? "Submit to PIC Area"
                     : "Submit to Supervisor"
                   : "Unsaved Changes"}
               </h2>
@@ -1847,7 +1891,9 @@ export default function GapAnalysisDetailPage() {
                   ? "Submit your Action Plans to Co Gap Staff for completeness check?"
                   : doc.workflowStatus === "STAFF_REVIEW"
                   ? "Forward this completed Gap Analysis & Action Plan to Co Gap Supervisor for final verification before Stage 1?"
-                  : "Submit this gap analysis to Co Gap Supervisor for checking and verification?"
+                  : draftNeedsPicActionPlan
+                  ? "This assessment has clauses below 100%. Submit directly to PIC Area to fill Action Plans?"
+                  : "All clauses are 100% or complete. Submit this gap analysis to Co Gap Supervisor for verification?"
                 : "You have unsaved changes. Are you sure you want to leave this page?"}
             </p>
             <div className="modal-actions" style={{ marginTop: 0 }}>
