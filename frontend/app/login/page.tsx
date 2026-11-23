@@ -39,15 +39,17 @@ function LoginForm() {
 
   return (
     <main className="auth-shell">
-      <form className="card auth-card" onSubmit={onSubmit} noValidate>
-        <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+      <form className="auth-card" onSubmit={onSubmit} noValidate>
+        <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
           <img
             src="/logo-kch.png"
             alt="Kalbe Consumer Health"
-            style={{ height: "54px", width: "auto", margin: "0 auto 1rem", display: "block" }}
+            style={{ height: "46px", width: "auto", margin: "0 auto 1.25rem", display: "block" }}
           />
-          <h2 style={{ fontSize: "1.4rem", margin: "0 0 0.35rem", color: "var(--primary)" }}>Gap Assessment Online</h2>
-          <p className="muted" style={{ margin: 0, fontSize: "0.875rem" }}>
+          <h1 style={{ fontSize: "1.35rem", fontWeight: 700, margin: "0 0 0.35rem", color: "var(--text)", letterSpacing: "-0.01em" }}>
+            Gap Assessment Online
+          </h1>
+          <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--muted)" }}>
             Log in to your compliance account
           </p>
         </div>
@@ -58,7 +60,7 @@ function LoginForm() {
         {error && <div className="alert alert-error" role="alert" id="login-error">{error}</div>}
 
         <div className="field">
-          <label htmlFor="username">Username</label>
+          <label htmlFor="username" style={{ fontSize: "0.82rem", fontWeight: 500, color: "var(--text)" }}>Username</label>
           <input
             id="username"
             value={username}
@@ -81,17 +83,47 @@ function LoginForm() {
           describedBy={error ? "login-error" : undefined}
         />
 
-        <button className="btn btn-primary btn-block" type="submit" disabled={busy || !username || !password}>
-          {busy ? "Logging in…" : "Log in"}
+        <button
+          className="btn btn-primary btn-block"
+          type="submit"
+          disabled={busy || !username || !password}
+          style={{
+            height: "42px",
+            fontSize: "0.925rem",
+            fontWeight: 600,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.5rem",
+            borderRadius: "8px",
+            boxShadow: "0 4px 14px rgba(0, 104, 55, 0.25)",
+            marginTop: "1.25rem",
+          }}
+        >
+          <span>{busy ? "Logging in…" : "Log in"}</span>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+            <polyline points="10 17 15 12 10 7" />
+            <line x1="15" y1="12" x2="3" y2="12" />
+          </svg>
         </button>
 
         <div
           style={{
             textAlign: "center",
             marginTop: "1.5rem",
-            paddingTop: "1rem",
+            paddingTop: "0.9rem",
             borderTop: "1px solid var(--border)",
-            fontSize: "0.78rem",
+            fontSize: "0.76rem",
             color: "var(--muted)",
           }}
         >
@@ -101,16 +133,13 @@ function LoginForm() {
 
       <footer
         style={{
-          marginTop: "1rem",
-          width: "100%",
-          maxWidth: "24rem",
+          marginTop: "1.25rem",
           textAlign: "center",
-          fontSize: "0.5rem",
+          fontSize: "0.55rem",
           fontWeight: 600,
-          letterSpacing: "0.02em",
+          letterSpacing: "0.03em",
           color: "#94a3b8",
           textTransform: "uppercase",
-          whiteSpace: "nowrap",
         }}
       >
         © 2026 GAP ASSESSMENT ONLINE. ALL RIGHTS RESERVED. KALBE CONSUMER HEALTH.
