@@ -125,9 +125,20 @@ function LoginForm() {
             borderTop: "1px solid var(--border)",
             fontSize: "0.76rem",
             color: "var(--muted)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.25rem",
           }}
         >
-          Developed by <span style={{ fontWeight: 600, color: "var(--primary)" }}>Shendy Tria</span>
+          <div>
+            Gap Assessment Online • <span style={{ fontWeight: 600, color: "var(--primary)" }}>Kalbe Consumer Health</span>
+          </div>
+          <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+            Developed by Shendy Tria
+          </div>
+          <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+            Version 1.0.0
+          </div>
         </div>
       </form>
 
@@ -142,7 +153,7 @@ function LoginForm() {
           textTransform: "uppercase",
         }}
       >
-        © 2026 GAP ASSESSMENT ONLINE. ALL RIGHTS RESERVED. KALBE CONSUMER HEALTH.
+        © 2026 GAP ASSESSMENT ONLINE. ALL RIGHTS RESERVED.
       </footer>
     </main>
   );

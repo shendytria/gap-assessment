@@ -734,38 +734,38 @@ export default function SettingsPage() {
                 ) : (
                   pagedDelegations.map((dl) => (
                     <tr key={dl.id}>
-                    <td>
-                      <span className="badge badge-info">{dl.siteCode}</span>
-                    </td>
-                    <td>{dl.roleCode}</td>
-                    <td>
-                      <strong>{dl.principalName}</strong>
-                    </td>
-                    <td>
-                      <strong>{dl.delegateName}</strong>
-                    </td>
-                    <td>{new Date(dl.startDate).toLocaleDateString()}</td>
-                    <td>{dl.endDate ? new Date(dl.endDate).toLocaleDateString() : "Indefinite"}</td>
-                    <td>{dl.reason}</td>
-                    <td>
-                      <span className={`badge ${dl.isRevoked ? "badge-err" : "badge-ok"}`}>
-                        {dl.isRevoked ? "Revoked" : "Active"}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      {!dl.isRevoked && isSupervisor && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ minHeight: "30px", fontSize: "0.8rem", padding: "0 0.6rem", color: "var(--err-text)" }}
-                          onClick={() => handleRevokeDelegation(dl)}
-                        >
-                          Revoke
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )))}
+                      <td>
+                        <span className="badge badge-info">{dl.siteCode}</span>
+                      </td>
+                      <td>{dl.roleCode}</td>
+                      <td>
+                        <strong>{dl.principalName}</strong>
+                      </td>
+                      <td>
+                        <strong>{dl.delegateName}</strong>
+                      </td>
+                      <td>{new Date(dl.startDate).toLocaleDateString()}</td>
+                      <td>{dl.endDate ? new Date(dl.endDate).toLocaleDateString() : "Indefinite"}</td>
+                      <td>{dl.reason}</td>
+                      <td>
+                        <span className={`badge ${dl.isRevoked ? "badge-err" : "badge-ok"}`}>
+                          {dl.isRevoked ? "Revoked" : "Active"}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {!dl.isRevoked && isSupervisor && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ minHeight: "30px", fontSize: "0.8rem", padding: "0 0.6rem", color: "var(--err-text)" }}
+                            onClick={() => handleRevokeDelegation(dl)}
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )))}
               </tbody>
             </table>
           </div>
@@ -904,7 +904,7 @@ export default function SettingsPage() {
                   </select>
                   {allDepartments.filter((d) => d.isActive && (!userForm.siteId || d.siteId === userForm.siteId)).length === 0 && (
                     <small className="muted" style={{ display: "block", marginTop: "0.25rem", fontSize: "0.75rem" }}>
-                      Belum ada departemen aktif di site ini. Tambahkan di tab Departments jika user membutuhkan departemen.
+                      There are no active departments on this site. Add them via the Departments tab if require departmens.
                     </small>
                   )}
                 </div>
